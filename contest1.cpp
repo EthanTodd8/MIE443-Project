@@ -190,7 +190,6 @@ private:
         }
 
         RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
-        RCLCPP_INFO(this -> get_logger(), "THIS IS WORKING TOO too");
 
         // Implement your exploration code here
         bool any_bumper_pressed = false;
@@ -201,23 +200,33 @@ private:
             }
         }
 
+        // Startup routine to orient robot towards direction of maximum laser distance
         while (startup == true)
         {
             RCLCPP_INFO(this -> get_logger(),"current yaw_: %.2f, desired yaw_: %.2f", yaw_, maxLaserDistPosition[1]);
-            
+           
+            // Save initial position
             initialPosition[0] = pos_x_;
             initialPosition[1] = yaw_;
 
-
-            if (round(yaw_) != round(maxLaserDistPosition[1]))
+            // Rotate until yaw matches angle of max distance, publishing velocity commands within while loop
+            if (round(initialPosition[1]) != round(maxLaserDistPosition[1])) // May want to set a range instead of exact match like if we're withing 5 degrees or something
             {
                 linear_ = 0.0;
-                angular_ = 0.1;
+                angular_ = 0.25;
+                geometry_msgs::msg::TwistStamped vel;
+                vel.header.stamp = this->now();
+                vel.twist.linear.x = linear_;
+                vel.twist.angular.z = angular_;
+                vel_pub_->publish(vel);
             }
-            else {startup = false;} 
+            else 
+            {
+                startup = false;
+            } 
         }
 
-        
+        //PUT MAIN LOGIC HERE
 
         if (minLaserDist_ > 0.5 && !any_bumper_pressed)
         {
