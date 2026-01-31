@@ -33,6 +33,8 @@ public:
             "/scan", rclcpp::SensorDataQoS(),
             std::bind(&Contest1Node::laserCallback, this, std::placeholders::_1));
 
+        
+
         hazard_sub_ = this->create_subscription<irobot_create_msgs::msg::HazardDetectionVector>(
             "/hazard_detection", rclcpp::SensorDataQoS(),
             std::bind(&Contest1Node::hazardCallback, this, std::placeholders::_1));
@@ -47,6 +49,7 @@ public:
 
         // Initialize variables
         start_time_ = this->now();
+        startup = true;
         angular_ = 0.0;
         linear_ = 0.0;
         pos_x_ = 0.0;
@@ -56,6 +59,7 @@ public:
         nLasers_ = 0;
         desiredNLasers_ = 0;
         desiredAngle_ = 5;
+        desiredAngle_2 = 180;
         
         // Initialize bumper states
         bumpers_["bump_from_left"] = false;
@@ -76,7 +80,7 @@ private:
         // implement your code here
         nLasers_ = (scan->angle_max - scan-> angle_min) / scan->angle_increment;
         laserRange_ = scan->ranges;
-        desiredNLasers_ = deg2rad(desiredAngle_) / scan->angle_increment;
+        desiredNLasers_ = deg2rad(desiredAngle_) / scan->angle_increment; // number of lasers to consider on each side
         RCLCPP_INFO(this->get_logger(), "Size of laser scan array: %d, and size of offset: %d", nLasers_, desiredNLasers_);
         //RCLCPP_INFO(this->get_logger(), "angle max %.2f, angle min %.2f, range_min %.2f, range_max %.2f", scan->angle_max, scan->angle_min, scan->range_min, scan->range_max);
 
@@ -97,7 +101,34 @@ private:
             }
         }
 
+        // laserCallback_2 uses a 180 degree offset instead of 90 degree offset, with desiredAngle_ at 180 degrees instead of 5 degrees.
+        // Using this method, we are able to consider all laser measurements in the scan and record the minimum and maximum distance to obstacles
+        // along with the associated yaw angles.
+        desiredNLasers_ = deg2rad(desiredAngle_2) / scan->angle_increment;
+        laser_offset = deg2rad(-180.0);
+        front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;
+        
+        minLaserDistPosition[0] = std::numeric_limits<float>::infinity();
+        maxLaserDistPosition[0] = 0.0;
+        minLaserDistPosition[1] = 0.0;
+        maxLaserDistPosition[1] = 0.0;
 
+        // for each laser_idx, save max distance and associated yaw & min distance and associated yaw
+        // Find minimum laser distance within +/- desiredAngle from front center
+        if (deg2rad(desiredAngle_2) <= scan->angle_max &&deg2rad(desiredAngle_2) >= scan->angle_min) {
+            for (uint32_t laser_idx = front_idx - desiredNLasers_; laser_idx < front_idx + desiredNLasers_; ++laser_idx) {
+                if (laserRange_[laser_idx] < minLaserDistPosition[0])
+                {
+                    minLaserDistPosition[0] = laserRange_[laser_idx];
+                    minLaserDistPosition[1] = scan->angle_min + laser_idx * scan->angle_increment;
+                }
+                else if (laserRange_[laser_idx] > maxLaserDistPosition[0])
+                {
+                    maxLaserDistPosition[0] = laserRange_[laser_idx];
+                    maxLaserDistPosition[1] = scan->angle_min + laser_idx * scan->angle_increment;
+                }
+            }
+        } 
     }
 
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
@@ -133,13 +164,8 @@ private:
                             detection.header.frame_id.c_str());
             }
         }
-
-
     }
-    std::vector<float> spin()
-    {
 
-    }
 
     void controlLoop()
     {
@@ -177,45 +203,34 @@ private:
 
         while (startup == true)
         {
+            RCLCPP_INFO(this -> get_logger(),"current yaw_: %.2f, desired yaw_: %.2f", yaw_, maxLaserDistPosition[1]);
+            
             initialPosition[0] = pos_x_;
             initialPosition[1] = yaw_;
-            startup = false;
-        }
-        if (pos_x_ == 0 && yaw_ <= (2*M_PI))
-        {
-            angular_ = M_PI/6;
-            linear_ = 0.0;
-        }
-        else if (pos_x_ == 0 && yaw_ > (2*M_PI))
-        {
-            angular = 
-        }
-       /* else if (yaw_ > M_PI /2 && pos_x_ >= 0.5 && !any_bumper_pressed && minLaserDist_ > 0.5)
-        {
-            angular_ = M_PI / 6;
-            linear_ = 0;
-            RCLCPP_INFO(this -> get_logger(), "(%.2f)", yaw_);
-        }
-        else if (minLaserDist_ < 1.0 && !any_bumper_pressed)
-        {
-            linear_ = 0.1;
-            if (yaw_ < 17/36*M_PI || pos_x_ > 0.6) {
-                angular_ = M_PI / 12;
+
+
+            if (round(yaw_) != round(maxLaserDistPosition[1]))
+            {
+                linear_ = 0.0;
+                angular_ = 0.1;
             }
-            else if (yaw_ < 19/36*M_PI || pos_x_ < 0.4) {
-                angular_ = -M_PI / 12;
-            }
-            else {
-                angular_ = 0.0;
-            }
-        }*/
+            else {startup = false;} 
+        }
+
+        
+
+        if (minLaserDist_ > 0.5 && !any_bumper_pressed)
+        {
+            linear_ = 0.2;
+            angular_ = 0.0;
+        }
         else 
         {
             angular_ = 0.0;
             linear_ = 0.0;
             rclcpp::shutdown();
             return;
-        }            
+        }   
         
 
 
@@ -249,10 +264,12 @@ private:
     int32_t nLasers_;
     int32_t desiredNLasers_;
     int32_t desiredAngle_;
+    int32_t desiredAngle_2;
     std::vector<float> laserRange_;
-    bool startup = true;
+    bool startup;
 
-    // max laser dist & associated yaw
+    // min&max laser dist & associated yaw
+    double minLaserDistPosition[2] = {0.0};
     double maxLaserDistPosition[2] = {0.0};
 
     // initial position
