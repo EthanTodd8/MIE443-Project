@@ -60,6 +60,10 @@ public:
         desiredNLasers_ = 0;
         desiredAngle_ = 5;
         desiredAngle_2 = 180;
+        frontTooClose = 0.2;
+        rightWallMax = 1.0;
+        isTurning = false;
+        startYaw = 0.0;
         
         // Initialize bumper states
         bumpers_["bump_from_left"] = false;
@@ -140,7 +144,7 @@ private:
         pos_y_= odom->pose.pose.position.y;
 
         //extract yaw from quaternion using tf2
-        yaw_ = tf2::getYaw(odom->pose.pose.orientation);
+        yaw_ = tf2::getYaw(odom->pose.pose.orientation);        //yaw in radians
 
         //RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
 
@@ -166,6 +170,19 @@ private:
         }
     }
 
+    /* function to normalise the angle in radian so it stays withing pi to -pi
+    used during YawChange calc - while turning a corner */
+
+    double normalizeAngle(double angle)   
+    {
+        while (angle > M_PI)
+            angle -= 2.0 * M_PI;
+
+        while (angle < -M_PI)
+            angle += 2.0 * M_PI;
+
+        return angle;
+    }
 
     void controlLoop()
     {
@@ -234,6 +251,86 @@ private:
             startup = false;
         }
 
+        // Corner sub-routine, detects when the front wall is less than 0.2m away from robot & run simultaneously with Right Wall follow behaviour
+
+        // checking to ensure laserRange_ and nLasers_ are not empty/invalid which can cause code to CRASH
+
+        // n laser & vel cmds -> might need TO BE UPDATED!
+
+        if (laserRange_.empty() || nLasers_ <= 0)
+        {
+            linear_ = 0.0;
+            angular_ = 0.0;
+            geometry_msgs::msg::TwistStamped vel;
+            vel.header.stamp = this->now();
+            vel.twist.linear.x = linear_;
+            vel.twist.angular.z = angular_;
+            vel_pub_->publish(vel);
+    
+        }
+        else
+        {
+        frontIndex = nLasers_/ 2;     //straight
+        rightIndex = nLasers_ /4;     //90 right
+        leftIndex = nLasers_ * 3/4;   //90 left - NOT USED
+
+        frontDist = laserRange_[frontIndex];
+        rightDist = laserRange_[rightIndex];
+        leftDist = laserRange_[leftIndex];           // NOT USED
+        }
+
+        if (isTurning == false)                                           // not turning - intialise turning if a corner is detected
+        {
+            if ((frontDist < frontTooClose) && (rightDist<rightWallMax))  //corner detected
+            {
+                //start turning 90 degree left
+
+                isTurning = true;
+                startYaw = yaw_;
+
+                linear_ = 0.0;
+                angular_ = 0.25;                                         // set angular speed in rad/s
+            }
+
+            else                                                         // no corner detected - keep driving forward
+            {
+                linear_ = 0.25;
+                angular_ = 0.0;
+
+            }
+
+            geometry_msgs::msg::TwistStamped vel;
+            vel.header.stamp = this->now();
+            vel.twist.linear.x = linear_;
+            vel.twist.angular.z = angular_;
+            vel_pub_->publish(vel);
+
+        else                                                          // it is turning
+        {
+            yawChange = normalizeAngle(yaw_- startYaw);              // calc the angle it has rotated in radians (pi to -pi) -> func defined above
+
+            if (std::abs(yawChange)<(M_PI/2.0))                      // absolute value of rotation less than pi/2 or 90 deg
+            {
+                linear_ = 0.0;
+                angular_ = 0.25;                                     // keeps rotating
+            }
+
+            else                                                    // absolute value of rotation equal or greater than pi/2 - 90 deg
+            {
+                isTurning = false;                                  // stops rotating, change the state of isTurning = false
+                linear_ = 0.0;
+                angular_ = 0.0;
+            }
+
+            geometry_msgs::msg::TwistStamped vel;
+            vel.header.stamp = this->now();
+            vel.twist.linear.x = linear_;
+            vel.twist.angular.z = angular_;
+            vel_pub_->publish(vel);
+
+        }
+        
+
         //PUT MAIN LOGIC HERE
 
         if (minLaserDist_ > 0.5 && !any_bumper_pressed)
@@ -291,6 +388,31 @@ private:
 
     // initial position
     double initialPosition[2] = {0.0};
+
+    // index and interpret front, left, and right regions of LIDAR scan data
+    int frontIndex;
+    int leftIndex;
+    int rightIndex;
+
+    // corresponding distances 
+    float frontDist;
+    float rightDist;
+    float leftDist;
+
+    // Distance (in m) at which front wall is too close
+    float frontTooClose;
+
+    // Maximum distance (in m) at which right wall is considered to be present
+    float rightWallMax;
+
+    // turning state
+    bool isTurning;
+
+    // start yaw 
+    double startYaw;
+
+    // change in yaw, due to rotation, calc based on the startYaw
+    double yawChange;
 
 };
 
