@@ -242,8 +242,16 @@ private:
         """
         bool any_bumper_pressed = checkBumpers();
 
+        if (any_bumper_pressed)
+        {
+            linear_ = 0.0;
+            angular_ = 0.0;
+            velocityPublish();
+            bumperPressedHandling();
+        }
+
         // inside corner detected
-        if ((minLaserDist_ < frontTooClose) && (minRightLaserDist_ < rightWallMax)) 
+        else if ((minLaserDist_ < frontTooClose) && (minRightLaserDist_ < rightWallMax)) 
         {
             cornerHandling(); // turn 90 degrees left
         }
@@ -253,14 +261,6 @@ private:
         {
             // turn 15 degrees right to find wall
             cornerHandling(-deg2rad(15.0));
-        }
-
-        else if (any_bumper_pressed) // wall is present on right side, keep driving forward
-        {
-            linear_ = 0.0;
-            angular_ = 0.0;
-            velocityPublish();
-            bumperPressedHandling();
         }
 
         else // wall is present on right side, keep driving forward
