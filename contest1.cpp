@@ -308,7 +308,7 @@ private:
             else                                                    // absolute value of rotation equal or greater than pi/2 - 90 deg
             {
                 isTurning = false;                                  // stops rotating, change the state of isTurning = false
-                linear_ = 0.0;
+                linear_ = 0.25;
                 angular_ = 0.0;
             }
         }
