@@ -267,6 +267,9 @@ private:
         else
         {
             // adjust to maintain right wall distance
+            // WALL FOLLOWING LOGIC TO BE IMPLEMENTED HERE
+
+            // Default code for now:
             if (minRightLaserDist_ < 0.5 * rightWallMax) // too close to right wall
             {
                 linear_ = 0.2;
