@@ -261,12 +261,6 @@ private:
         {
             linear_ = 0.0;
             angular_ = 0.0;
-            geometry_msgs::msg::TwistStamped vel;
-            vel.header.stamp = this->now();
-            vel.twist.linear.x = linear_;
-            vel.twist.angular.z = angular_;
-            vel_pub_->publish(vel);
-    
         }
         else
         {
@@ -299,11 +293,7 @@ private:
 
             }
 
-            geometry_msgs::msg::TwistStamped vel;
-            vel.header.stamp = this->now();
-            vel.twist.linear.x = linear_;
-            vel.twist.angular.z = angular_;
-            vel_pub_->publish(vel);
+        }
 
         else                                                          // it is turning
         {
@@ -321,13 +311,6 @@ private:
                 linear_ = 0.0;
                 angular_ = 0.0;
             }
-
-            geometry_msgs::msg::TwistStamped vel;
-            vel.header.stamp = this->now();
-            vel.twist.linear.x = linear_;
-            vel.twist.angular.z = angular_;
-            vel_pub_->publish(vel);
-
         }
         
 
