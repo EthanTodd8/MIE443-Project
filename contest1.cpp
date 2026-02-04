@@ -56,6 +56,8 @@ public:
         pos_y_ = 0.0;
         yaw_ = 0.0;
         minLaserDist_ = std::numeric_limits<float>::infinity();
+        minRightLaserDist_ = std::numeric_limits<float>::infinity();
+        minLeftLaserDist_ = std::numeric_limits<float>::infinity();
         nLasers_ = 0;
         desiredNLasers_ = 0;
         desiredAngle_ = 5;
@@ -74,11 +76,10 @@ public:
         
         // Initializes node - should be last
         RCLCPP_INFO(this->get_logger(), "Contest 1 node initialized. Running for 480 seconds.");
-
-
     }
 
 private:
+    #pragma region Callbacks
     void laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan)
     {
         // implement your code here
@@ -88,13 +89,10 @@ private:
         RCLCPP_INFO(this->get_logger(), "Size of laser scan array: %d, and size of offset: %d", nLasers_, desiredNLasers_);
         //RCLCPP_INFO(this->get_logger(), "angle max %.2f, angle min %.2f, range_min %.2f, range_max %.2f", scan->angle_max, scan->angle_min, scan->range_min, scan->range_max);
 
-
-        float laser_offset = deg2rad(-90.0);
-        uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;
-        
-        minLaserDist_ = std::numeric_limits<float>::infinity();
-
         // Find minimum laser distance within +/- desiredAngle from front center
+        float laser_offset = deg2rad(-90.0);
+        uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;       
+        minLaserDist_ = std::numeric_limits<float>::infinity();
         if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) {
             for (uint32_t laser_idx = front_idx - desiredNLasers_; laser_idx < front_idx + desiredNLasers_; ++laser_idx) {
                 minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]);
@@ -105,20 +103,44 @@ private:
             }
         }
 
-        // laserCallback_2 uses a 180 degree offset instead of 90 degree offset, with desiredAngle_ at 180 degrees instead of 5 degrees.
-        // Using this method, we are able to consider all laser measurements in the scan and record the minimum and maximum distance to obstacles
-        // along with the associated yaw angles.
+        // EDITED CODE BELOW THIS LINE
+        // Find minimum laser distance on the right side within +/- desiredAngle from right center
+        uint32_t right_idx = (laser_offset + deg2rad(90.0) - scan->angle_min) / scan->angle_increment;
+        minRightLaserDist_ = std::numeric_limits<float>::infinity();
+        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) {
+            for (uint32_t laser_idx = right_idx - desiredNLasers_; laser_idx < right_idx + desiredNLasers_; ++laser_idx) {
+                minRightLaserDist_ = std::min(minRightLaserDist_, laserRange_[laser_idx]);
+            }
+        } else {
+            for (uint32_t laser_idx = 0; laser_idx < nLasers_; ++laser_idx) {
+                minRightLaserDist_ = std::min(minRightLaserDist_, laserRange_[laser_idx]);
+            }
+        }
+
+        // Find minimum laser distance on the left side within +/- desiredAngle from left center
+        uint32_t left_idx = (laser_offset - deg2rad(90.0) - scan->angle_min) / scan->angle_increment;
+        minLeftLaserDist_ = std::numeric_limits<float>::infinity();
+        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) {
+            for (uint32_t laser_idx = left_idx - desiredNLasers_; laser_idx < left_idx + desiredNLasers_; ++laser_idx) {
+                minLeftLaserDist_ = std::min(minLeftLaserDist_, laserRange_[laser_idx]);
+            }
+        } else {
+            for (uint32_t laser_idx = 0; laser_idx < nLasers_; ++laser_idx) {
+                minLeftLaserDist_ = std::min(minLeftLaserDist_, laserRange_[laser_idx]);
+            }
+        }        
+
+        // Record min and max laser distances & associated yaw angles for full 180 degree scan
         desiredNLasers_ = deg2rad(desiredAngle_2) / scan->angle_increment;
         laser_offset = deg2rad(-180.0);
         front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;
         
-        minLaserDistPosition[0] = std::numeric_limits<float>::infinity();
-        maxLaserDistPosition[0] = 0.0;
-        minLaserDistPosition[1] = 0.0;
-        maxLaserDistPosition[1] = 0.0;
+        minLaserDistPosition[0] = std::numeric_limits<float>::infinity(); // min distance
+        maxLaserDistPosition[0] = 0.0;                                    // max distance
+        minLaserDistPosition[1] = 0.0;                                    // yaw associated with min distance
+        maxLaserDistPosition[1] = 0.0;                                    // yaw associated with max distance
 
         // for each laser_idx, save max distance and associated yaw & min distance and associated yaw
-        // Find minimum laser distance within +/- desiredAngle from front center
         if (deg2rad(desiredAngle_2) <= scan->angle_max &&deg2rad(desiredAngle_2) >= scan->angle_min) {
             for (uint32_t laser_idx = front_idx - desiredNLasers_; laser_idx < front_idx + desiredNLasers_; ++laser_idx) {
                 if (laserRange_[laser_idx] < minLaserDistPosition[0])
@@ -158,7 +180,7 @@ private:
             val = false;
         }
         
-        // Update bum[er states based on current detections
+        // Update bumper states based on current detections
         for (const auto& detection : hazard_vector->detections) {
             // HazardDetection types include: BUMP, CLIFF, STALL, WHEEL_DROP, etc.
             // Type 1 corresponds to BUMP
@@ -169,12 +191,180 @@ private:
             }
         }
     }
+    #pragma endregion Callbacks
+    
+    #pragma region Routines
+    void startupRoutine()
+    {
+        """
+        startupRoutine to orient robot towards direction of maximum laser distance and drive to within 20cm of an obstacle
+        """
+        RCLCPP_INFO(this -> get_logger(),"current yaw_: %.2f, desired yaw_: %.2f", yaw_, maxLaserDistPosition[1]);
+        bool any_bumper_pressed = checkBumpers();
+           
+        // Save initial position
+        initialPosition[0] = pos_x_;
+        initialPosition[1] = yaw_;
 
-    /* function to normalise the angle in radian so it stays withing pi to -pi
-    used during YawChange calc - while turning a corner */
+        // Continuously checking max distance and rotating until we're within +- ~2.5 degrees of the max distance direction
+        while (abs(maxLaserDistPosition[1]) > 0.04 && !any_bumper_pressed) 
+        {
+            linear_ = 0.0;
+            angular_ = 0.25;
+            velocityPublish();
+            any_bumper_pressed = checkBumpers();
+        }
+        
+        // Move forward until minimum laser distance is 20cm or less
+        while (minLaserDist_ > 0.2 && !any_bumper_pressed)
+        {
+            linear_ = 0.25;
+            angular_ = 0.0;
+            velocityPublish();
+            any_bumper_pressed = checkBumpers();
+        }
+
+        // Turn 90 degrees to the right to face parallel to the wall
+        float targetYaw = normalizeAngle(yaw_ - M_PI / 2.0);
+        while (abs(normalizeAngle(yaw_ - targetYaw)) > 0.04 && !any_bumper_pressed)
+        {
+            linear_ = 0.0;
+            angular_ = -0.25;
+            velocityPublish();
+            any_bumper_pressed = checkBumpers();
+        }
+
+        if (any_bumper_pressed)
+        {
+            linear_ = 0.0;
+            angular_ = 0.0;
+            velocityPublish();
+            bumperPressedHandling();
+        }
+
+        startup = false;
+    }
+
+    void wallFollowingRoutine()
+    {
+        """
+        Wall following routine to follow the right wall at a set distance
+        """
+        bool any_bumper_pressed = checkBumpers();
+
+        // inside corner detected
+        if ((minLaserDist_ < frontTooClose) && (minRightLaserDist_ < rightWallMax)) 
+        {
+            cornerHandling(); // turn 90 degrees left
+        }
+
+        // outside corner detected
+        else if (minRightLaserDist_ > rightWallMax) 
+        {
+            // turn 15 degrees right to find wall
+            cornerHandling(-deg2rad(15.0));
+        }
+
+        else if (any_bumper_pressed) // wall is present on right side, keep driving forward
+        {
+            linear_ = 0.0;
+            angular_ = 0.0;
+            velocityPublish();
+            bumperPressedHandling();
+        }
+
+        else // wall is present on right side, keep driving forward
+        {
+            linear_ = 0.2;
+            angular_ = 0.0;
+            velocityPublish();
+        }
+    }
+
+    #pragma endregion Routines
+
+    #pragma region Handlers
+
+    void cornerHandling(float turnAngle = M_PI/2.0)
+    {
+        """
+        Does something when a corner is detected, then returns to wall following
+        """
+        // turn 90 degrees
+        bool any_bumper_pressed = checkBumpers();
+        currentYaw = yaw_;
+        targetYaw = normalizeAngle(currentYaw + turnAngle);
+        while (yaw_ < targetYaw && !any_bumper_pressed)
+        {
+            linear_ = 0.0;
+            angular_ = 0.25;
+            velocityPublish();
+            any_bumper_pressed = checkBumpers();
+        }
+    }
+
+    void bumperPressedHandling()
+    {
+        """
+        Does something when a bumper is pressed, then returns to what it was doing before
+        """
+        bool any_bumper_pressed = false;
+        float initialYaw = yaw_;
+        float initialX = pos_x_;
+
+        // Rotate 90 degrees to the left
+        while (yaw_ < initialYaw + M_PI/2.0)
+        {
+            linear_ = 0.0;
+            angular_ = 0.25;
+            velocityPublish();
+        }
+
+        // Move forward 0.5m
+        while (pos_x_ < initialX + 0.5 && !any_bumper_pressed)
+        {
+            linear_ = 0.25;
+            angular_ = 0.0;
+            velocityPublish();
+            any_bumper_pressed = checkBumpers();    
+        }
+
+        if (any_bumper_pressed) // Recursively call bumperPressedHandling again
+        {
+            linear_ = 0.0;
+            angular_ = 0.0;
+            velocityPublish();
+            bumperPressedHandling();
+        }
+
+        else // Resume previous routine
+        { 
+            if (startup) { startupRoutine(); }
+            else { wallFollowingRoutine(); }
+        }
+        
+    }
+    
+    #pragma endregion Handlers
+
+    #pragma region Utilities
+
+    bool checkBumpers()
+    {
+        """ Check if any bumper is pressed """
+        bool any_bumper_pressed = false;
+        for (const auto& [key, val] : bumpers_) {
+            if (val) {
+                any_bumper_pressed = true;
+                break;
+            }
+        }
+        return any_bumper_pressed;
+    }
 
     double normalizeAngle(double angle)   
     {
+        """ Normalize angle in radian so it stars within pi to -pi. Used during YawChange calc - while turning a corner """
         while (angle > M_PI)
             angle -= 2.0 * M_PI;
 
@@ -183,6 +373,22 @@ private:
 
         return angle;
     }
+
+    void velocityPublish()
+    {
+        """Setting/publishing velocity commands"""
+
+        // Set velocity command
+        geometry_msgs::msg::TwistStamped vel;
+        vel.header.stamp = this->now();
+        vel.twist.linear.x = linear_;
+        vel.twist.angular.z = angular_;
+
+        // Publish velocity command
+        vel_pub_->publish(vel);
+    }
+    
+    #pragma endregion Utilities
 
     void controlLoop()
     {
@@ -209,135 +415,22 @@ private:
         RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
 
         // Implement your exploration code here
-        bool any_bumper_pressed = false;
-        for (const auto& [key, val] : bumpers_) {
-            if (val) {
-                any_bumper_pressed = true;
-                break;
-            }
+        bool any_bumper_pressed = checkBumpers();
+        if (any_bumper_pressed == true)
+        {
+            linear_ = 0.0;
+            angular_ = 0.0;
+            velocityPublish();
+            bumperPressedHandling();
         }
 
         // Startup routine to orient robot towards direction of maximum laser distance and drive to within 20cm of an obstacle
-        if (startup == true)
-        {
-            RCLCPP_INFO(this -> get_logger(),"current yaw_: %.2f, desired yaw_: %.2f", yaw_, maxLaserDistPosition[1]);
-           
-            // Save initial position
-            initialPosition[0] = pos_x_;
-            initialPosition[1] = yaw_;
+        if (startup == true) { startupRoutine(); }
+        wallFollowingRoutine();
 
-            // Continuously checking max distance and rotating until we're within +- ~2.5 degrees of the max distance direction
-            while (abs(maxLaserDistPosition[1] > 0.04)) 
-            {
-                linear_ = 0.0;
-                angular_ = 0.25;
-                geometry_msgs::msg::TwistStamped vel;
-                vel.header.stamp = this->now();
-                vel.twist.linear.x = linear_;
-                vel.twist.angular.z = angular_;
-                vel_pub_->publish(vel);
-            }
-            // Move forward until minimum laser distance is 20cm or less
-            while (minLaserDist_ > 0.2)
-            {
-                linear_ = 0.25;
-                angular_ = 0.0;
-                geometry_msgs::msg::TwistStamped vel;
-                vel.header.stamp = this->now();
-                vel.twist.linear.x = linear_;
-                vel.twist.angular.z = angular_;
-                vel_pub_->publish(vel);
-            }
-            startup = false;
-        }
-
-        // Corner sub-routine, detects when the front wall is less than 0.2m away from robot & run simultaneously with Right Wall follow behaviour
-
-        // checking to ensure laserRange_ and nLasers_ are not empty/invalid which can cause code to CRASH
-
-        if (laserRange_.empty() || nLasers_ <= 0)
-        {
-            linear_ = 0.0;
-            angular_ = 0.0;
-        }
-        else
-        {
-        frontIndex = nLasers_/ 2;     //straight
-        rightIndex = nLasers_ /4;     //90 right
-        leftIndex = nLasers_ * 3/4;   //90 left - NOT USED
-
-        frontDist = laserRange_[frontIndex];
-        rightDist = laserRange_[rightIndex];
-        leftDist = laserRange_[leftIndex];           // NOT USED
-        }
-
-        if (isTurning == false)                                           // not turning - intialise turning if a corner is detected
-        {
-            if ((frontDist < frontTooClose) && (rightDist<rightWallMax))  //corner detected
-            {
-                //start turning 90 degree left
-
-                isTurning = true;
-                startYaw = yaw_;
-
-                linear_ = 0.0;
-                angular_ = 0.25;                                         // set angular speed in rad/s
-            }
-
-            else                                                         // no corner detected - keep driving forward
-            {
-                linear_ = 0.25;
-                angular_ = 0.0;
-
-            }
-
-        }
-
-        else                                                          // it is turning
-        {
-            yawChange = normalizeAngle(yaw_- startYaw);              // calc the angle it has rotated in radians (pi to -pi) -> func defined above
-
-            if (std::abs(yawChange)<(M_PI/2.0))                      // absolute value of rotation less than pi/2 or 90 deg
-            {
-                linear_ = 0.0;
-                angular_ = 0.25;                                     // keeps rotating
-            }
-
-            else                                                    // absolute value of rotation equal or greater than pi/2 - 90 deg
-            {
-                isTurning = false;                                  // stops rotating, change the state of isTurning = false
-                linear_ = 0.25;
-                angular_ = 0.0;
-            }
-        }
-        
-
-        //PUT MAIN LOGIC HERE
-
-        if (minLaserDist_ > 0.5 && !any_bumper_pressed)
-        {
-            linear_ = 0.2;
-            angular_ = 0.0;
-        }
-        else 
-        {
-            angular_ = 0.0;
-            linear_ = 0.0;
-            rclcpp::shutdown();
-            return;
-        }   
-        
-
-
-        // Set velocity command
-        geometry_msgs::msg::TwistStamped vel;
-        vel.header.stamp = this->now();
-        vel.twist.linear.x = linear_;
-        vel.twist.angular.z = angular_;
-
-        // Publish velocity command
-        vel_pub_->publish(vel);
+        velocityPublish();
     }
+
 
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
@@ -356,6 +449,8 @@ private:
     std::map<std::string, bool> bumpers_;
 
     float minLaserDist_;
+    float minRightLaserDist_;
+    float minLeftLaserDist_;
     int32_t nLasers_;
     int32_t desiredNLasers_;
     int32_t desiredAngle_;
