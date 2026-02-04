@@ -255,8 +255,6 @@ private:
 
         // checking to ensure laserRange_ and nLasers_ are not empty/invalid which can cause code to CRASH
 
-        // n laser & vel cmds -> might need TO BE UPDATED!
-
         if (laserRange_.empty() || nLasers_ <= 0)
         {
             linear_ = 0.0;
