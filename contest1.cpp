@@ -250,24 +250,41 @@ private:
             bumperPressedHandling();
         }
 
-        // inside corner detected
-        else if ((minLaserDist_ < frontTooClose) && (minRightLaserDist_ < rightWallMax)) 
+        else if (minLaserDist_ < frontTooClose) // front obstacle too close
         {
-            cornerHandling(); // turn 90 degrees left
+            if (minRightLaserDist_ < rightWallMax) // wall on right side too
+            {
+                // turn 90 degrees left
+                cornerHandling(); 
+            }
+            else // no wall on right side
+            {
+                // turn 15 degrees right to find wall
+                cornerHandling(-deg2rad(15.0));
+            }
         }
 
-        // outside corner detected
-        else if (minRightLaserDist_ > rightWallMax) 
+        else
         {
-            // turn 15 degrees right to find wall
-            cornerHandling(-deg2rad(15.0));
-        }
-
-        else // wall is present on right side, keep driving forward
-        {
-            linear_ = 0.2;
-            angular_ = 0.0;
-            velocityPublish();
+            // adjust to maintain right wall distance
+            if (minRightLaserDist_ < 0.5 * rightWallMax) // too close to right wall
+            {
+                linear_ = 0.2;
+                angular_ = 0.15; // turn left slightly
+                velocityPublish();
+            }
+            else if (minRightLaserDist_ > 1.5 * rightWallMax) // too far from right wall
+            {
+                linear_ = 0.2;
+                angular_ = -0.15; // turn right slightly
+                velocityPublish();
+            }
+            else // within acceptable range of right wall
+            {
+                linear_ = 0.2;
+                angular_ = 0.0; // go straight
+                velocityPublish();
+            }
         }
     }
 
