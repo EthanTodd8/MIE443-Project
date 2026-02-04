@@ -300,7 +300,6 @@ private:
         """
         Does something when a corner is detected, then returns to wall following
         """
-        // turn 90 degrees
         bool any_bumper_pressed = checkBumpers();
         currentYaw = yaw_;
         targetYaw = normalizeAngle(currentYaw + turnAngle);
@@ -331,7 +330,7 @@ private:
         }
 
         // Move forward 0.5m
-        while (pos_x_ < initialX + 0.5 && !any_bumper_pressed)
+        while (pos_x_ < initialX + 0.5 && !any_bumper_pressed && minLaserDist_ > 0.25)
         {
             linear_ = 0.25;
             angular_ = 0.0;
