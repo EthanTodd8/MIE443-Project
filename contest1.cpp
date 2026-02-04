@@ -224,16 +224,6 @@ private:
             any_bumper_pressed = checkBumpers();
         }
 
-        // Turn 90 degrees to the right to face parallel to the wall
-        float targetYaw = normalizeAngle(yaw_ - M_PI / 2.0);
-        while (abs(normalizeAngle(yaw_ - targetYaw)) > 0.04 && !any_bumper_pressed)
-        {
-            linear_ = 0.0;
-            angular_ = -0.25;
-            velocityPublish();
-            any_bumper_pressed = checkBumpers();
-        }
-
         if (any_bumper_pressed)
         {
             linear_ = 0.0;
