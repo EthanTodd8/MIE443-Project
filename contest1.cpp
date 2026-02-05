@@ -57,28 +57,17 @@ public:
         pos_y_ = 0.0;
         yaw_ = 0.0;
         minLaserDist_ = std::numeric_limits<float>::infinity();
-        minRightLaserDist_ = std::numeric_limits<float>::infinity();
-        minLeftLaserDist_ = std::numeric_limits<float>::infinity();
         nLasers_ = 0;
         desiredNLasers_ = 0;
         desiredAngle_ = 5;
-        desiredAngle_2 = 180;
-        frontTooClose = 0.5;
-        rightWallMax = 0.5;
+        minimumFrontDistance = 0.5;
         isTurning = false;
-        turn_right = false;
-        turn_left = false;
-        startYaw = 0.0;
         initialGoalYaw = 0.0;
         enterBumperHandling = false;
         currentYaw = 0.0;
         currentX = 0.0;
         currentY = 0.0;
-        target_rotation = M_PI/2; 
-        
-        /*front_idx_ = 0;
-        right_idx_ = 0;
-        left_idx_ = 0;*/
+        anyBumperPressed = false;
         front_distance_ = std::numeric_limits<float>::infinity();
         right_distance_ = std::numeric_limits<float>::infinity();
         left_distance_ = std::numeric_limits<float>::infinity();
@@ -179,155 +168,76 @@ private:
     #pragma region Routines
     void startupRoutine()
     {
-        """startupRoutine to orient robot towards direction of maximum laser distance and drive to within 20cm of an obstacle""";
+        // Startup routine to orient robot towards direction of maximum laser distance and drive to within 50cm of an obstacle
         RCLCPP_INFO(this -> get_logger(),"WE'RE IN STARTUP ROUTINE");
         
-        // Move forward until minimum laser distance is 20cm or less
-        if (front_distance_ > frontTooClose)
+        // Move forward until minimum laser distance is 50cm or less
+        if (front_distance_ > minimumFrontDistance)
         {
             RCLCPP_INFO(this -> get_logger(),"drive forwards");
             linear_ = 0.25;
             angular_ = 0.0;
         }
-
-        else
-        {
-            callstartupRoutine = false; // Exit startup routine
-        }
-
+        else { callstartupRoutine = false; } // Exit startup routine
+ 
         return;
     }
 
     void wallFollowingRoutine()
     {
         /* Wall following routine to follow the right wall at a set distance */
-        RCLCPP_INFO(this -> get_logger(),"WE'RE IN WALL FOLLOWING ROUTINE");
         RCLCPP_INFO(this -> get_logger(),"front_distance: %.2f , left_distance: %.2f, right_distance: %.2f", front_distance_, left_distance_, right_distance_);
 
-
+        // Determine if robot is close to an obstacle in front and needs to turn
+        bool turnClockwise = false; // true = turn right, false = turn left
         if (front_distance_ <= 0.5 && !isTurning)
         {
-            RCLCPP_INFO(this -> get_logger(),"check 1");
-            if (left_distance_ <= 0.5 && right_distance_ > 0.01)
-            {
-                turn_right = true;
-            }
-            else
-            {
-                turn_left = true;
-            }
+            if (left_distance_ <= 0.5 && right_distance_ > 0.01) { turnClockwise = true; } // turn right if left wall is also close
             isTurning = true;
-            startYaw = yaw_;
         }
         
-        if (!isTurning)
+        if (!isTurning) // robot is clear ahead
         {
-            RCLCPP_INFO(this -> get_logger(),"check 2");
             linear_ = 0.2;
             angular_ = 0.0;
         }
-        else
-        {
-            if (turn_left)
-            {
-               bool rotate = false; 
-                float min_element = *std::min_element(begin(filteredLaserRange_), end(filteredLaserRange_));
-                if (abs(right_distance_ - min_element) > 0.01)
-                {
-                    RCLCPP_INFO(this->get_logger(), "right distance: %f, min element: %f", right_distance_, min_element);
-                    rotate = true;
-                }
-
-                if(rotate) 
-                {
-                    linear_ = 0.0; 
-                    angular_ = 0.1; 
-                    //RCLCPP_INFO(this->get_logger(), "Rotating left: %.3f / %.3f degrees",rad2deg(std::abs(angle_rotated)), rad2deg(target_rotation));
-                }
-
-                else 
-                {
-                    //reached target rotation 
-                    RCLCPP_INFO(this->get_logger(), "Reached 90 degrees, moving to final stop"); 
-                    linear_ = 0.2;
-                    angular_ = 0.0; 
-                    turn_left = false;
-                    isTurning = false;
-                }
-            }
-            else if (turn_right)
-            {
-
-                bool rotate = false; 
-                float check_dist[nLasers_];
-                for (int i=0; i < nLasers_; i++)
-                {
-                    if (laserRange_[i] > 0.2)
-                    {
-                        check_dist[i] = laserRange_[i];
-                    }
-                }
-
-
-                float min_element = *std::min_element(begin(filteredLaserRange_), end(filteredLaserRange_));
-                if (abs(left_distance_ - min_element) > 0.05) 
-                {
-                    RCLCPP_INFO(this->get_logger(), "left distance: %f, min element: %f", left_distance_, min_element);
-                    rotate = true;
-                }
-
-                if(rotate) 
-                {
-                    linear_ = 0.0; 
-                    angular_ = -0.5; 
-                    //RCLCPP_INFO(this->get_logger(), "Rotating right: %.3f / %.3f degrees",rad2deg(std::abs(angle_rotated)), rad2deg(target_rotation));
-                }
-                else 
-                {
-                    //reached target rotation 
-                    RCLCPP_INFO(this->get_logger(), "Reached 90 degrees, moving to final stop"); 
-                    linear_ = 0.2;
-                    angular_ = 0.0; 
-                    turn_right = false;
-                    isTurning = false;
-                }
-            }
-        }
-
-       
-        #pragma endregion
-
-        return;
-        
+        else { turnRobot(turnClockwise); } // robot is turning
+            
+        return; 
     }
 
     #pragma endregion Routines
 
     #pragma region Utilities
 
-    bool isWallOnRight()
+    void turnRobot(bool turnClockwise)
     {
-        """ Check if there is a wall on the right side within the defined maximum distance """;
-        int right_idx = nLasers_ / 4; // Right side index in laser scan array
-        int center_idx = nLasers_ / 2; // straight ahead index in laser scan array
+        // Turn robot in specified direction until min side laser distance matches min laser distance from filteredLaserRange_
+        RCLCPP_INFO(this->get_logger(), "Turning robot %s", turnClockwise ? "clockwise" : "counter-clockwise");
 
-        int min_idx = center_idx;
-        float min_distance = laserRange_[min_idx];
+        // Find minimum distance from filtered laser ranges
+        float min_element = *std::min_element(begin(filteredLaserRange_), end(filteredLaserRange_)); // find minimum distance from filtered laser ranges
+        float distanceDifference = turnClockwise ? abs(left_distance_ - min_element) : abs(right_distance_ - min_element); // calculate distance difference based on turn direction
 
-        for (int32_t laser_idx = center_idx; laser_idx <= right_idx; ++laser_idx) {
-            if (laserRange_[laser_idx] < min_distance) {
-                min_idx = laser_idx;
-                min_distance = laserRange_[laser_idx];
-            }
+        if (distanceDifference > 0.01)  // if not yet reached target rotation
+        { 
+            linear_ = 0.0;
+            angular_ = turnClockwise ? 0.1 : -0.1; // turn in specified direction
+        }
+        else // reached target rotation
+        {
+            RCLCPP_INFO(this->get_logger(), "Reached 90 degrees, moving to final stop"); 
+            linear_ = 0.2;
+            angular_ = 0.0; 
+            isTurning = false;
         }
 
-        RCLCPP_INFO(this -> get_logger(),"min_idx: %d, right_idx: %d", min_idx, right_idx);
-        return min_idx == right_idx;
+        return;
     }
-    
+
     bool isBumpersPressed()
     {
-        """ Check if any bumper is pressed """;
+        // Check if any bumper is pressed
         bool any_bumper_pressed = false;
         for (const auto& [key, val] : bumpers_) {
             if (val) {
@@ -338,94 +248,11 @@ private:
         return any_bumper_pressed;
     }
 
-    double normalizeAngle(double angle)   
-    {
-        """ Normalize angle in radian so it stars within pi to -pi. Used during YawChange calc - while turning a corner """;
-        while (angle > M_PI)
-            angle -= 2.0 * M_PI;
-
-        while (angle < -M_PI)
-            angle += 2.0 * M_PI;
-
-        return angle;
-    }
-
-    void velocityPublish()
-    {
-        """Setting/publishing velocity commands""";
-
-        // Set velocity command
-        geometry_msgs::msg::TwistStamped vel;
-        vel.header.stamp = this->now();
-        vel.twist.linear.x = linear_;
-        vel.twist.angular.z = angular_;
-
-        // Publish velocity command
-        vel_pub_->publish(vel);
-
-        return;
-    }
-    
     void bumperPressedHandling()
     {
-        """ Handling bumper pressed event """;
+        // Handling bumper pressed event
         RCLCPP_INFO(this -> get_logger(),"Bumper pressed! Handling...");
-
-        // Stop the robot immediately
         
-        return;
-    }
-
-    #pragma endregion Utilities
-
-    void createLasersArray()
-    {
-        for (const auto& range : laserRange_) {
-            if (range >= 0.2f) {
-                filteredLaserRange_.push_back(range);
-            }
-        }
-    }
-
-    void controlLoop()
-    {
-        RCLCPP_INFO(this->get_logger(), "in control loop");
-        // Calculate elapsed time
-        auto current_time = this->now();
-        double seconds_elapsed = (current_time - start_time_).seconds();
-
-        // Check if 480 seconds (8 minutes) have elapsed
-        if (seconds_elapsed >= 480.0) {
-            RCLCPP_INFO(this->get_logger(), "Contest time completed (480 seconds). Stopping robot.");
-
-            // Stop the robot
-            geometry_msgs::msg::TwistStamped vel;
-            vel.header.stamp = this->now();
-            vel.twist.linear.x = 0.0;
-            vel.twist.angular.z = 0.0;
-            vel_pub_->publish(vel);
-
-            // Shutdown the node
-            rclcpp::shutdown();
-            return;
-        }
-
-        //RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
-
-        // define filtered laser range array with values above 20cm
-        createLasersArray();
-
-        bool anyBumperPressed = isBumpersPressed();
-        if (anyBumperPressed)
-        {
-            enterBumperHandling = true;   
-            currentYaw = yaw_;  
-            currentX = pos_x_;
-            currentY = pos_y_; 
-        }
-
-        if (enterBumperHandling)
-        {
             RCLCPP_INFO(this -> get_logger(),"bumper was pressed");
             if (abs(pos_x_-currentX) < 0.2)
             {
@@ -446,30 +273,99 @@ private:
                 linear_ = 0.0;
                 angular_ = 0.0;
             }
-            return; // Skip rest of control loop while handling bumper press
+
+        return;
+    }
+
+    double normalizeAngle(double angle)   
+    {
+        // Normalize angle in radian so it stars within pi to -pi. Used during YawChange calc - while turning a corner
+        while (angle > M_PI)
+            angle -= 2.0 * M_PI;
+
+        while (angle < -M_PI)
+            angle += 2.0 * M_PI;
+
+        return angle;
+    }
+    
+    void createLasersArray()
+    {
+        // Create filteredLaserRange_ array with laser distances above 20cm
+        for (const auto& range : laserRange_) {
+            if (range >= 0.2f) {
+                filteredLaserRange_.push_back(range);
+            }
+        }
+    }
+
+    void setCurrentPositions()
+    {
+        // Set current positions and yaw for bumper handling routine
+        currentX = pos_x_;
+        currentY = pos_y_;
+        currentYaw = yaw_;
+    }
+
+    #pragma endregion Utilities
+
+    void controlLoop()
+    {
+        RCLCPP_INFO(this->get_logger(), "in control loop");
+        // Calculate elapsed time
+        auto current_time = this->now();
+        double seconds_elapsed = (current_time - start_time_).seconds();
+
+        //RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
+
+        // Check if 480 seconds (8 minutes) have elapsed
+        if (seconds_elapsed >= 480.0) {
+            RCLCPP_INFO(this->get_logger(), "Contest time completed (480 seconds). Stopping robot.");
+
+            // Stop the robot
+            geometry_msgs::msg::TwistStamped vel;
+            vel.header.stamp = this->now();
+            vel.twist.linear.x = 0.0;
+            vel.twist.angular.z = 0.0;
+            vel_pub_->publish(vel);
+
+            // Shutdown the node
+            rclcpp::shutdown();
+            return;
         }
 
+        // Our exploration code below this point ////////////////////////////////////////////////////////////////////////////////////////////////////////
+        
+        // SET UP VARIABLES AND CONDITIONS //
+        // Define filteredLaserRange array with values from laserRange_ above 20cm
+        createLasersArray(); 
 
+        // Check if any bumper is pressed
+        anyBumperPressed = isBumpersPressed();
 
-        // Startup routine to orient robot towards direction of maximum laser distance and drive to within 20cm of an obstacle
-        if (startup) {
-            // Save initial position
-            initialPosition[0] = pos_x_;
-            initialPosition[1] = yaw_;
+        // Set up conditional handling for bumper pressed or startup
+        if (anyBumperPressed) // if true, set flag to enter bumper handling routine and define current positions
+        {
+            enterBumperHandling = true;   
+            setCurrentPositions();
+        }
+        else if (startup) // if true (first loop), set initial goal yaw and define current positions and set to false
+        {
             initialGoalYaw = yaw_;
+            setCurrentPositions();
             startup = false;
         }
-        
-        if (callstartupRoutine) { startupRoutine(); }
-        else { wallFollowingRoutine(); }
 
-                // Set velocity command
+        // ENTER ROUTINE BASED ON CONDITIONS //
+        if (enterBumperHandling)  { bumperPressedHandling(); } // handle bumper pressed event
+        else if (callstartupRoutine) { startupRoutine(); } // perform startup routine (orient robot to face furthest wall & approach)
+        else { wallFollowingRoutine(); } // perform wall following routine
+
+        // SET AND PUBLISH VELOCITY COMMAND //
         geometry_msgs::msg::TwistStamped vel;
         vel.header.stamp = this->now();
         vel.twist.linear.x = linear_;
         vel.twist.angular.z = angular_;
-
-        // Publish velocity command
         vel_pub_->publish(vel);
         return;
     }
@@ -482,75 +378,39 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
 
     rclcpp::Time start_time_;
+
+    // Velocity commands
     float angular_;
     float linear_;
 
+    // Robot position state
     double pos_x_;
     double pos_y_;
     double yaw_;
 
+    // Bumper states
     std::map<std::string, bool> bumpers_;
 
     float minLaserDist_;
-    float minRightLaserDist_;
-    float minLeftLaserDist_;
     int32_t nLasers_;
     int32_t desiredNLasers_;
     int32_t desiredAngle_;
-    int32_t desiredAngle_2;
     std::vector<float> laserRange_;
     std::vector<float> filteredLaserRange_;
+
     bool startup;
     bool callstartupRoutine;
     float initialGoalYaw;
+
     bool enterBumperHandling;
+    bool anyBumperPressed;
 
-    // min&max laser dist & associated yaw
-    double minLaserDistPosition[2] = {0.0};
-    double maxLaserDistPosition[2] = {0.0};
-
-    // initial position
-    double initialPosition[2] = {0.0};
-
-    // index and interpret front, left, and right regions of LIDAR scan data
-    int frontIndex;
-    int leftIndex;
-    int rightIndex;
-
-    // corresponding distances 
-    float frontDist;
-    float rightDist;
-    float leftDist;
+    bool isTurning;
+    float minimumFrontDistance;
 
     float currentYaw;
     float currentX;
     float currentY;
-
-    // Distance (in m) at which front wall is too close
-    float frontTooClose;
-
-    // Maximum distance (in m) at which right wall is considered to be present
-    float rightWallMax;
-
-    // turning state
-    bool isTurning;
-    bool turn_right;
-    bool turn_left;
-
-    // start yaw 
-    double startYaw;
-
-    // change in yaw, due to rotation, calc based on the startYaw
-    double yawChange;
-    double target_rotation; 
-
-
-
-    // front, right and left indices
-    /*int front_idx_;
-    int right_idx_;
-    int left_idx_;
-    int back_idx_;*/
 
     float front_distance_;
     float right_distance_;
