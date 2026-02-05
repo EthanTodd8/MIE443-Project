@@ -66,9 +66,14 @@ public:
         frontTooClose = 0.5;
         rightWallMax = 0.5;
         isTurning = false;
+        turn_right = false;
+        turn_left = false;
         startYaw = 0.0;
         initialGoalYaw = 0.0;
         enterBumperHandling = false;
+        currentYaw = 0.0;
+        currentX = 0.0;
+        currentY = 0.0;
         
         front_idx_ = 0;
         right_idx_ = 0;
@@ -113,68 +118,6 @@ private:
                 minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]);
             }
         }
-
-        // EDITED CODE BELOW THIS LINE
-        // Find minimum laser distance on the right side within +/- desiredAngle from right center
-        uint32_t right_idx = (laser_offset + deg2rad(90.0) - scan->angle_min) / scan->angle_increment;
-        minRightLaserDist_ = std::numeric_limits<float>::infinity();
-        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) {
-            for (uint32_t laser_idx = right_idx - desiredNLasers_; laser_idx < right_idx + desiredNLasers_; ++laser_idx) {
-                minRightLaserDist_ = std::min(minRightLaserDist_, laserRange_[laser_idx]);
-            }
-        } else {
-            for (uint32_t laser_idx = 0; laser_idx < nLasers_; ++laser_idx) {
-                minRightLaserDist_ = std::min(minRightLaserDist_, laserRange_[laser_idx]);
-            }
-        }
-
-        // Find minimum laser distance on the left side within +/- desiredAngle from left center
-        uint32_t left_idx = (laser_offset - deg2rad(90.0) - scan->angle_min) / scan->angle_increment;
-        minLeftLaserDist_ = std::numeric_limits<float>::infinity();
-        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) {
-            for (uint32_t laser_idx = left_idx - desiredNLasers_; laser_idx < left_idx + desiredNLasers_; ++laser_idx) {
-                minLeftLaserDist_ = std::min(minLeftLaserDist_, laserRange_[laser_idx]);
-            }
-        } else {
-            for (uint32_t laser_idx = 0; laser_idx < nLasers_; ++laser_idx) {
-                minLeftLaserDist_ = std::min(minLeftLaserDist_, laserRange_[laser_idx]);
-            }
-        }        
-
-        // Record min and max laser distances & associated yaw angles for full 180 degree scan
-        desiredNLasers_ = deg2rad(desiredAngle_2) / scan->angle_increment;
-        laser_offset = deg2rad(-180.0);
-        front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;
-
-        
-        minLaserDistPosition[0] = std::numeric_limits<float>::infinity(); // min distance
-        maxLaserDistPosition[0] = 0.0;                                    // max distance
-        minLaserDistPosition[1] = 0.0;                                    // yaw associated with min distance
-        maxLaserDistPosition[1] = 0.0;                                    // yaw associated with max distance
-
-        // for each laser_idx, save max distance and associated yaw & min distance and associated yaw
-        if (deg2rad(desiredAngle_2) <= scan->angle_max &&deg2rad(desiredAngle_2) >= scan->angle_min) {
-            for (uint32_t laser_idx = front_idx - desiredNLasers_; laser_idx < front_idx + desiredNLasers_; ++laser_idx) {
-                if (laserRange_[laser_idx] < minLaserDistPosition[0])
-                {
-                    minLaserDistPosition[0] = laserRange_[laser_idx];
-                    minLaserDistPosition[1] = scan->angle_min + laser_idx * scan->angle_increment;
-                }
-                else if (laserRange_[laser_idx] > maxLaserDistPosition[0])
-                {
-                    maxLaserDistPosition[0] = laserRange_[laser_idx];
-                    maxLaserDistPosition[1] = scan->angle_min + laser_idx * scan->angle_increment;
-                }
-            }
-        } 
-
-        front_idx_ = nLasers_ / 2;
-        right_idx_ = nLasers_ / 4;
-        left_idx_ = 3 * nLasers_ / 4;
-
-        front_distance_ = laserRange_[front_idx_];
-        right_distance_ = laserRange_[right_idx_];
-        left_distance_ = laserRange_[left_idx_];
     }
 
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
@@ -228,7 +171,7 @@ private:
         // }
         
         // Move forward until minimum laser distance is 20cm or less
-        if (minLaserDist_ > frontTooClose)
+        if (front_distance_ > frontTooClose)
         {
             linear_ = 0.25;
             angular_ = 0.0;
@@ -244,48 +187,60 @@ private:
 
     void wallFollowingRoutine()
     {
-
-        // int center_index = nLasers_ / 2;
-        // int right_index = nLasers_ / 4;
-        // int left_index = 3 * nLasers_ / 4;
-
-        // float center_distance = laserRange_[center_index];
-        // float right_distance = laserRange_[right_index];      
-        // float left_distance = laserRange_[left_index];
-
         /* Wall following routine to follow the right wall at a set distance */
         RCLCPP_INFO(this -> get_logger(),"WE'RE IN WALL FOLLOWING ROUTINE");
+        RCLCPP_INFO(this -> get_logger(),"front_distance: %.2f , left_distance: %.2f, right_distance: %.2f", front_distance_, left_distance_, right_distance_);
 
-        if (minLaserDist_ < frontTooClose)
+
+        if (front_distance_ <= 0.5 && !isTurning)
         {
-            RCLCPP_INFO(this -> get_logger(),"front too close");
-            linear_ = 0.0;
-            angular_ = 0.25; // turn left to avoid front obstacle
+            RCLCPP_INFO(this -> get_logger(),"check 1");
+            if (left_distance_ <= 0.5 && right_distance_ > 0.5)
+            {
+                turn_right = true;
+            }
+            else
+            {
+                turn_left = true;
+            }
+            isTurning = true;
         }
-        else 
+        
+        if (!isTurning)
         {
-            // proceed forward while adjusting to maintain right wall distance
-            if (right_distance_ < rightWallMax*0.9) // too close to right wall, with 20cm buffer
+            RCLCPP_INFO(this -> get_logger(),"check 2");
+            linear_ = 0.2;
+            angular_ = 0.0;
+        }
+        else
+        {
+            if (turn_left)
             {
-                RCLCPP_INFO(this -> get_logger(),"right wall too close");
-                linear_ = 0.0;
-                angular_ = 0.25; // turn left slightly
+                if (right_distance_ <= 0.5)
+                {
+                    turn_left = false;
+                    isTurning= false;
+                }
+                else
+                {
+                    linear_ = 0.0;
+                    angular_ = 0.2;
+                }
             }
-            else if (right_distance_ > rightWallMax*1.1) // too far from right wall
+            else if (turn_right)
             {
-                RCLCPP_INFO(this -> get_logger(),"right wall too far");
-                linear_ = 0.1;
-                angular_ = -0.25; // turn right slightly
-            }
-            else // within acceptable range of right wall
-            {
-                linear_ = 0.2;
-                angular_ = 0.0; // go straight
+                if (left_distance_ <= 0.5)
+                {
+                    turn_right = false;
+                    isTurning = false;
+                }
+                else
+                {
+                    angular_ = -0.2;
+                    linear_ = 0.0;
+                }
             }
         }
-
-
-
 
         // bool wallonRight = isWallOnRight();
         
@@ -348,6 +303,7 @@ private:
         //         angular_ = 0.0; // go straight
         //     }
         // }
+        #pragma endregion
 
         return;
         
@@ -432,6 +388,7 @@ private:
 
     void controlLoop()
     {
+        RCLCPP_INFO(this->get_logger(), "in control loop");
         // Calculate elapsed time
         auto current_time = this->now();
         double seconds_elapsed = (current_time - start_time_).seconds();
@@ -452,38 +409,56 @@ private:
             return;
         }
 
-        RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
-
-        // // Implement your exploration code here
-        // if (enterBumperHandling == false) 
-        // {
-        //     enterBumperHandling = isBumpersPressed();
-        // }
-
-        // if (enterBumperHandling) 
-        // {
-        //     bumperPressedHandling();
-        //     return; // Skip rest of control loop while handling bumper press
-        // }
+        //RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
 
         bool anyBumperPressed = isBumpersPressed();
         if (anyBumperPressed)
         {
-            // shutdown robot
-            linear_ = 0.0;
-            angular_ = 0.0;
-            velocityPublish();
-            rclcpp::shutdown();
-            return;
+            enterBumperHandling = true;   
+            currentYaw = yaw_;  
+            currentX = pos_x_;
+            currentY = pos_y_; 
         }
+
+        if (enterBumperHandling)
+        {
+            RCLCPP_INFO(this -> get_logger(),"bumper was pressed");
+            if (abs(pos_x_-currentX) < 0.2)
+            {
+                RCLCPP_INFO(this -> get_logger(),"bumper was pressed - backup");
+                linear_ = -0.2; // back up
+                angular_ = 0.0;
+            }
+            else if (abs(normalizeAngle(yaw_ - currentYaw)) < deg2rad(20.0))
+            {
+                RCLCPP_INFO(this -> get_logger(),"bumper was pressed - turn");
+                linear_ = 0.0;
+                angular_ = 0.25; // turn left
+            }
+            else 
+            {
+                RCLCPP_INFO(this -> get_logger(),"bumper was pressed - exit handling");
+                enterBumperHandling = false; // exit bumper handling once backed up and turned ~90 degrees
+                linear_ = 0.0;
+                angular_ = 0.0;
+            }
+            return; // Skip rest of control loop while handling bumper press
+        }
+
+
+        front_idx_ = nLasers_ / 2;
+        right_idx_ = nLasers_ / 4;
+        left_idx_ = 3 * nLasers_ / 4;
+
+        front_distance_ = laserRange_[front_idx_];
+        right_distance_ = laserRange_[right_idx_];
+        left_distance_ = laserRange_[left_idx_];
 
         // Startup routine to orient robot towards direction of maximum laser distance and drive to within 20cm of an obstacle
         if (startup) {
             // Save initial position
             initialPosition[0] = pos_x_;
             initialPosition[1] = yaw_;
-            // initialGoalYaw = maxLaserDistPosition[1];
-            // initialGoalYaw = minLaserDistPosition[1];
             initialGoalYaw = yaw_;
             startup = false;
         }
@@ -541,6 +516,10 @@ private:
     float rightDist;
     float leftDist;
 
+    float currentYaw;
+    float currentX;
+    float currentY;
+
     // Distance (in m) at which front wall is too close
     float frontTooClose;
 
@@ -549,6 +528,8 @@ private:
 
     // turning state
     bool isTurning;
+    bool turn_right;
+    bool turn_left;
 
     // start yaw 
     double startYaw;
