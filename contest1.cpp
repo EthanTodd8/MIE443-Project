@@ -181,14 +181,6 @@ private:
     {
         """startupRoutine to orient robot towards direction of maximum laser distance and drive to within 20cm of an obstacle""";
         RCLCPP_INFO(this -> get_logger(),"WE'RE IN STARTUP ROUTINE");
-
-        // Continuously checking max distance and rotating until we're within +- ~2.5 degrees of the max distance direction
-        // if (abs(initialGoalYaw - yaw_) > 0.04) 
-        // {   
-        //     RCLCPP_INFO(this -> get_logger(),"initialGoalYaw: %f, current yaw_: %f", initialGoalYaw, yaw_);
-        //     linear_ = 0.0;
-        //     angular_ = 0.25;
-        // }
         
         // Move forward until minimum laser distance is 20cm or less
         if (front_distance_ > frontTooClose)
@@ -216,7 +208,7 @@ private:
         if (front_distance_ <= 0.5 && !isTurning)
         {
             RCLCPP_INFO(this -> get_logger(),"check 1");
-            if (left_distance_ <= 0.5 && right_distance_ > 0.5)
+            if (left_distance_ <= 0.5 && right_distance_ > 0.01)
             {
                 turn_right = true;
             }
@@ -239,18 +231,18 @@ private:
             if (turn_left)
             {
                bool rotate = false; 
-                //normalize angle
-                while (right_distance_ != min(laserRange_)) 
+                float min_element = *std::min_element(begin(filteredLaserRange_), end(filteredLaserRange_));
+                if (abs(right_distance_ - min_element) > 0.01)
                 {
+                    RCLCPP_INFO(this->get_logger(), "right distance: %f, min element: %f", right_distance_, min_element);
                     rotate = true;
                 }
 
                 if(rotate) 
                 {
                     linear_ = 0.0; 
-                    angular_ = 0.5; 
-                    RCLCPP_INFO(this->get_logger(), "Rotating left: %.3f / %.3f degrees",
-                        rad2deg(std::abs(angle_rotated)), rad2deg(target_rotation));
+                    angular_ = 0.1; 
+                    //RCLCPP_INFO(this->get_logger(), "Rotating left: %.3f / %.3f degrees",rad2deg(std::abs(angle_rotated)), rad2deg(target_rotation));
                 }
 
                 else 
@@ -262,25 +254,25 @@ private:
                     turn_left = false;
                     isTurning = false;
                 }
-                
-                // if (right_distance_ <= 0.5)
-                // {
-                //     turn_left = false;
-                //     isTurning= false;
-                // }
-                // else
-                // {
-                //     linear_ = 0.0;
-                //     angular_ = 0.2;
-                // }
             }
             else if (turn_right)
             {
 
                 bool rotate = false; 
-                //normalize angle
-                while (left_distance_ != min(laserRange_)) 
+                float check_dist[nLasers_];
+                for (int i=0; i < nLasers_; i++)
                 {
+                    if (laserRange_[i] > 0.2)
+                    {
+                        check_dist[i] = laserRange_[i];
+                    }
+                }
+
+
+                float min_element = *std::min_element(begin(filteredLaserRange_), end(filteredLaserRange_));
+                if (abs(left_distance_ - min_element) > 0.05) 
+                {
+                    RCLCPP_INFO(this->get_logger(), "left distance: %f, min element: %f", left_distance_, min_element);
                     rotate = true;
                 }
 
@@ -288,8 +280,7 @@ private:
                 {
                     linear_ = 0.0; 
                     angular_ = -0.5; 
-                    RCLCPP_INFO(this->get_logger(), "Rotating left: %.3f / %.3f degrees",
-                        rad2deg(std::abs(angle_rotated)), rad2deg(target_rotation));
+                    //RCLCPP_INFO(this->get_logger(), "Rotating right: %.3f / %.3f degrees",rad2deg(std::abs(angle_rotated)), rad2deg(target_rotation));
                 }
                 else 
                 {
@@ -300,80 +291,10 @@ private:
                     turn_right = false;
                     isTurning = false;
                 }
-                // if (left_distance_ <= 0.5)
-                // {
-                //     turn_right = false;
-                //     isTurning = false;
-                // }
-                // else
-                // {
-                //     angular_ = -0.2;
-                //     linear_ = 0.0;
-                // }
             }
         }
 
-        // bool wallonRight = isWallOnRight();
-        
-        // if (!wallonRight) // front obstacle too close
-        // {
-        //     linear_ = 0.0;
-        //     angular_ = 0.25; // turn left to avoid front obstacle
-        //     // if (minRightLaserDist_ < rightWallMax) // wall on right side too
-        //     // {
-        //     //     RCLCPP_INFO(this -> get_logger(),"WE'RE IN WALL FOLLOWING ROUTINE");
-        //     //     linear_ = 0.0;
-        //     //     angular_ = 0.25; // turn left to avoid front obstacle
-        //     //     return;
-        //     // }
-        //     // else // no wall on right side
-        //     // {
-        //     //     linear_ = 0.0;
-        //     //     angular_ = -0.25; // turn right to find wall
-        //     //     return;
-        //     // }
-        // } 
-
-        // else if (minLaserDist_ > frontTooClose)
-        // {
-        //     linear_ = 0.2;
-        //     angular_ = 0.0; // go straight
-        // }
-
-        // else
-        // {
-        //     RCLCPP_INFO(this -> get_logger(),"CLOSE IN FRONT, WALL ON RIGHT");
-        //     linear_ = 0.0;
-        //     angular_ = 0.25; // turn left to avoid front obstacle
-        // }
-        // else if (minRightLaserDist_ > rightWallMax*2) // clear in front but no wall on right side
-        // {
-        //     RCLCPP_INFO(this -> get_logger(),"CLEAR IN FRONT, NO WALL ON RIGHT");
-        //     angular_ = -0.25; // turn right to find wall
-        //     linear_ = 0.0;
-
-        // } 
-
-        // else  // clear in front and wall on right side
-        // {         
-        //     RCLCPP_INFO(this -> get_logger(),"CLEAR IN FRONT, WALL ON RIGHT");   
-        //     // proceed forward while adjusting to maintain right wall distance
-        //     if (minRightLaserDist_ < rightWallMax*0.5) // too close to right wall, with 20cm buffer
-        //     {
-        //         linear_ = 0.2;
-        //         angular_ = -0.25; // turn left slightly
-        //     }
-        //     else if (minRightLaserDist_ > rightWallMax*1.5) // too far from right wall
-        //     {
-        //         linear_ = 0.2;
-        //         angular_ = 0.25; // turn right slightly
-        //     }
-        //     else // within acceptable range of right wall
-        //     {
-        //         linear_ = 0.2;
-        //         angular_ = 0.0; // go straight
-        //     }
-        // }
+       
         #pragma endregion
 
         return;
@@ -457,6 +378,15 @@ private:
 
     #pragma endregion Utilities
 
+    void createLasersArray()
+    {
+        for (const auto& range : laserRange_) {
+            if (range >= 0.2f) {
+                filteredLaserRange_.push_back(range);
+            }
+        }
+    }
+
     void controlLoop()
     {
         RCLCPP_INFO(this->get_logger(), "in control loop");
@@ -481,6 +411,9 @@ private:
         }
 
         //RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
+
+        // define filtered laser range array with values above 20cm
+        createLasersArray();
 
         bool anyBumperPressed = isBumpersPressed();
         if (anyBumperPressed)
@@ -566,6 +499,7 @@ private:
     int32_t desiredAngle_;
     int32_t desiredAngle_2;
     std::vector<float> laserRange_;
+    std::vector<float> filteredLaserRange_;
     bool startup;
     bool callstartupRoutine;
     float initialGoalYaw;
