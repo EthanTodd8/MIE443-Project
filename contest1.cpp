@@ -267,17 +267,6 @@ private:
                     turn_left = false;
                     isTurning = false;
                 }
-                
-                // if (right_distance_ <= 0.5)
-                // {
-                //     turn_left = false;
-                //     isTurning= false;
-                // }
-                // else
-                // {
-                //     linear_ = 0.0;
-                //     angular_ = 0.2;
-                // }
             }
             else if (turn_right)
             {
@@ -309,81 +298,8 @@ private:
                     turn_right = false;
                     isTurning = false;
                 }
-                // if (left_distance_ <= 0.5)
-                // {
-                //     turn_right = false;
-                //     isTurning = false;
-                // }
-                // else
-                // {
-                //     angular_ = -0.2;
-                //     linear_ = 0.0;
-                // }
             }
         }
-
-        // bool wallonRight = isWallOnRight();
-        
-        // if (!wallonRight) // front obstacle too close
-        // {
-        //     linear_ = 0.0;
-        //     angular_ = 0.25; // turn left to avoid front obstacle
-        //     // if (minRightLaserDist_ < rightWallMax) // wall on right side too
-        //     // {
-        //     //     RCLCPP_INFO(this -> get_logger(),"WE'RE IN WALL FOLLOWING ROUTINE");
-        //     //     linear_ = 0.0;
-        //     //     angular_ = 0.25; // turn left to avoid front obstacle
-        //     //     return;
-        //     // }
-        //     // else // no wall on right side
-        //     // {
-        //     //     linear_ = 0.0;
-        //     //     angular_ = -0.25; // turn right to find wall
-        //     //     return;
-        //     // }
-        // } 
-
-        // else if (minLaserDist_ > frontTooClose)
-        // {
-        //     linear_ = 0.2;
-        //     angular_ = 0.0; // go straight
-        // }
-
-        // else
-        // {
-        //     RCLCPP_INFO(this -> get_logger(),"CLOSE IN FRONT, WALL ON RIGHT");
-        //     linear_ = 0.0;
-        //     angular_ = 0.25; // turn left to avoid front obstacle
-        // }
-        // else if (minRightLaserDist_ > rightWallMax*2) // clear in front but no wall on right side
-        // {
-        //     RCLCPP_INFO(this -> get_logger(),"CLEAR IN FRONT, NO WALL ON RIGHT");
-        //     angular_ = -0.25; // turn right to find wall
-        //     linear_ = 0.0;
-
-        // } 
-
-        // else  // clear in front and wall on right side
-        // {         
-        //     RCLCPP_INFO(this -> get_logger(),"CLEAR IN FRONT, WALL ON RIGHT");   
-        //     // proceed forward while adjusting to maintain right wall distance
-        //     if (minRightLaserDist_ < rightWallMax*0.5) // too close to right wall, with 20cm buffer
-        //     {
-        //         linear_ = 0.2;
-        //         angular_ = -0.25; // turn left slightly
-        //     }
-        //     else if (minRightLaserDist_ > rightWallMax*1.5) // too far from right wall
-        //     {
-        //         linear_ = 0.2;
-        //         angular_ = 0.25; // turn right slightly
-        //     }
-        //     else // within acceptable range of right wall
-        //     {
-        //         linear_ = 0.2;
-        //         angular_ = 0.0; // go straight
-        //     }
-        // }
-        #pragma endregion
 
         return;
         
@@ -393,25 +309,6 @@ private:
 
     #pragma region Utilities
 
-    bool isWallOnRight()
-    {
-        """ Check if there is a wall on the right side within the defined maximum distance """;
-        int right_idx = nLasers_ / 4; // Right side index in laser scan array
-        int center_idx = nLasers_ / 2; // straight ahead index in laser scan array
-
-        int min_idx = center_idx;
-        float min_distance = laserRange_[min_idx];
-
-        for (int32_t laser_idx = center_idx; laser_idx <= right_idx; ++laser_idx) {
-            if (laserRange_[laser_idx] < min_distance) {
-                min_idx = laser_idx;
-                min_distance = laserRange_[laser_idx];
-            }
-        }
-
-        RCLCPP_INFO(this -> get_logger(),"min_idx: %d, right_idx: %d", min_idx, right_idx);
-        return min_idx == right_idx;
-    }
     
     bool isBumpersPressed()
     {
@@ -436,22 +333,6 @@ private:
             angle += 2.0 * M_PI;
 
         return angle;
-    }
-
-    void velocityPublish()
-    {
-        """Setting/publishing velocity commands""";
-
-        // Set velocity command
-        geometry_msgs::msg::TwistStamped vel;
-        vel.header.stamp = this->now();
-        vel.twist.linear.x = linear_;
-        vel.twist.angular.z = angular_;
-
-        // Publish velocity command
-        vel_pub_->publish(vel);
-
-        return;
     }
     
     void bumperPressedHandling()
