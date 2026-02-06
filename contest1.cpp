@@ -31,16 +31,17 @@ public:
         // Initialize publisher for velocity commands
         vel_pub_ = this->create_publisher<geometry_msgs::msg::TwistStamped>("/cmd_vel", 10);
 
+        //Initialize subscriber for laser scan data (LiDAR)
         laser_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
             "/scan", rclcpp::SensorDataQoS(),
             std::bind(&Contest1Node::laserCallback, this, std::placeholders::_1));
-
         
-
+        //Initialize subscriber for hazard detection data
         hazard_sub_ = this->create_subscription<irobot_create_msgs::msg::HazardDetectionVector>(
             "/hazard_detection", rclcpp::SensorDataQoS(),
             std::bind(&Contest1Node::hazardCallback, this, std::placeholders::_1));
-
+        
+        //Initialize subscriber for odometry data
         odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
             "/odom", rclcpp::SensorDataQoS(),
             std::bind(&Contest1Node::odomCallback, this, std::placeholders::_1));
@@ -56,39 +57,39 @@ public:
 
 
         // Initialize variables
-        start_time_ = this->now();
-        startup = true;
-        callstartupRoutine = true;
-        angular_ = 0.0;
-        linear_ = 0.0;
-        pos_x_ = 0.0;
-        pos_y_ = 0.0;
-        yaw_ = 0.0;
-        minLaserDist_ = std::numeric_limits<float>::infinity();
-        nLasers_ = 0;
-        desiredNLasers_ = 0;
+        start_time_ = this->now(); //define start time
+        startup = true; //boolean to indicate control loop is executing the first time
+        callstartupRoutine = true;  //why do we have this and line 61???
+        angular_ = 0.0; //initialize angular velocity
+        linear_ = 0.0;  //initialize linear velocity
+        pos_x_ = 0.0; //initialize x position
+        pos_y_ = 0.0; // initialize y position
+        yaw_ = 0.0; //initialize yaw
+        minLaserDist_ = std::numeric_limits<float>::infinity(); //initialize minimum laser distance
+        nLasers_ = 0; //initilaize counter for number of laser data points
+        desiredNLasers_ = 0; 
         desiredAngle_ = 5;
-        minimumFrontDistance = 0.5;
+        minimumFrontDistance = 0.5; 
         isTurning = false;
         initialGoalYaw = 0.0;
         enterBumperHandling = false;
-        currentYaw = 0.0;
-        currentX = 0.0;
-        currentY = 0.0;
-        anyBumperPressed = false;
+        currentYaw = 0.0; //?????
+        currentX = 0.0; //?????
+        currentY = 0.0; //?????
+        anyBumperPressed = false; 
         front_distance_ = std::numeric_limits<float>::infinity();
         right_distance_ = std::numeric_limits<float>::infinity();
         left_distance_ = std::numeric_limits<float>::infinity();
         back_distance_ = std::numeric_limits<float>::infinity();
 
-        // Initialize bumper states
+        // Initialize bumper states to false 
         bumpers_["bump_from_left"] = false;
         bumpers_["bump_front_center"] = false;
         bumpers_["bump_front_right"] = false;
         bumpers_["bump_left"] = false;
         bumpers_["bump_right"] = false;
         
-        // Initializes node - should be last
+        // Initializes node to execute program for contest 1
         RCLCPP_INFO(this->get_logger(), "Contest 1 node initialized. Running for 480 seconds.");
     }
 
@@ -107,7 +108,7 @@ private:
         float laser_offset = deg2rad(-90.0);
         uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;   
 
-        minLaserDist_ = std::numeric_limits<float>::infinity();
+        minLaserDist_ = std::numeric_limits<float>::infinity(); //find the closest obstacle to the current position of the robot
         if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) {
             for (uint32_t laser_idx = front_idx - desiredNLasers_; laser_idx < front_idx + desiredNLasers_; ++laser_idx) {
                 minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]);
@@ -120,37 +121,33 @@ private:
 
         int front_idx_from_scan_ = static_cast<int>(
             (0.0 - scan->angle_min) / scan->angle_increment
-        );
+        ); //what does this do???
 
         //front_idx_ = front_idx_from_scan_;
 
-        int front_idx_ = nLasers_ / 4;
-        int back_idx_ = nLasers_ * 3/4 ;
-        int left_idx_ = nLasers_ / 2;
-        int right_idx_ = 0;
+        int front_idx_ = nLasers_ / 4; //find index of front obstacle distance measurement
+        int back_idx_ = nLasers_ * 3/4 ; //find index of back obstacle distance measurement
+        int left_idx_ = nLasers_ / 2; //find index of left obstacle distance measurement
+        int right_idx_ = 0; //find index of right obstacle distance measurement
 
-        front_distance_ = laserRange_[front_idx_];
-        right_distance_ = laserRange_[right_idx_];
-        left_distance_ = laserRange_[left_idx_];
-        back_distance_ = laserRange_[back_idx_];
+        front_distance_ = laserRange_[front_idx_];  //extract distance of obstacle in front of robot
+        right_distance_ = laserRange_[right_idx_];  //extract distance of obstacle to right of robot
+        left_distance_ = laserRange_[left_idx_];  //extract distance of obstacle to left of robot
+        back_distance_ = laserRange_[back_idx_]; //extract distance of obstacle behind robot
 
         RCLCPP_INFO(this->get_logger(), "front_distance_: %f, right_distance_: %f, left_distance: %f, back_distance: %f" , front_distance_, right_distance_, left_distance_, back_distance_);
     }
 
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
     {
-        // implement your code here
-        //extract position
+        //extract (current?) position of the robot
 
         pos_x_= odom->pose.pose.position.x; 
         pos_y_= odom->pose.pose.position.y;
 
         //extract yaw from quaternion using tf2
         yaw_ = tf2::getYaw(odom->pose.pose.orientation);        //yaw in radians
-
         //RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
-
-
     }
 
     void hazardCallback(const irobot_create_msgs::msg::HazardDetectionVector::SharedPtr hazard_vector)
@@ -168,6 +165,8 @@ private:
                 bumpers_[detection.header.frame_id] = true;
                 RCLCPP_INFO(this->get_logger(), "Bumper pressed: %s",
                             detection.header.frame_id.c_str());
+                
+                //implement steps here to handle bumper pressed event   
             }
         }
     }
