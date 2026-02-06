@@ -21,7 +21,6 @@ inline double rad2deg(double rad) { return rad * 180.0 / M_PI; }
 inline double deg2rad(double deg) { return deg * M_PI / 180.0; }
 
 
-
 class Contest1Node : public rclcpp::Node
 {
 public:
@@ -52,34 +51,34 @@ public:
 
         // Obtain a random seed from the system clock
         unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+
         // Initialize the Mersenne Twister pseudo-random number generator
         std::mt19937 gen(seed); 
 
-
         // Initialize variables
         start_time_ = this->now(); //define start time
-        startup = true; //boolean to indicate control loop is executing the first time
+        startup = true; //boolean to indicate control loop is executing program to startup before wall following
         callstartupRoutine = true;  // boolean to indicate whether to call startup routines
         angular_ = 0.0; //initialize angular velocity
         linear_ = 0.0;  //initialize linear velocity
         pos_x_ = 0.0; //initialize x position
         pos_y_ = 0.0; // initialize y position
         yaw_ = 0.0; //initialize yaw
-        minLaserDist_ = std::numeric_limits<float>::infinity(); //initialize minimum laser distance
+        minLaserDist_ = std::numeric_limits<float>::infinity(); //initialize minimum laser distance to infinity (ensures all other measurements will be smaller)
         nLasers_ = 0; //initilaize counter for number of laser data points
-        desiredNLasers_ = 0; 
-        desiredAngle_ = 5;
-        minimumFrontDistance = 0.5; 
-        isTurning = false;
-        enterBumperHandling = false;
+        desiredNLasers_ = 0; //???????
+        desiredAngle_ = 5; //?????
+        minimumFrontDistance = 0.5; //minimum distance the robot can have to an obstacle in front
+        isTurning = false; //boolean to indicate whether the robot is currently turning
+        enterBumperHandling = false; //boolean to indicate whether robot should enter bumper handling routine
         currentYaw = 0.0; // set to current yaw when setPositions() is called - used for some handler routines (e.g. startup routine)
         currentX = 0.0; // set to current X position when setPositions() is called - used for some handler routines (e.g. startup routine)
         currentY = 0.0; // set to current Y position when setPositions() is called - used for some handler routines (e.g. startup routine)
-        anyBumperPressed = false; 
-        front_distance_ = std::numeric_limits<float>::infinity();
-        right_distance_ = std::numeric_limits<float>::infinity();
-        left_distance_ = std::numeric_limits<float>::infinity();
-        back_distance_ = std::numeric_limits<float>::infinity();
+        anyBumperPressed = false; //boolean to indicate whether any bumper is pressed
+        front_distance_ = std::numeric_limits<float>::infinity(); //initiaze front distance to infinity, all other measurements will be smaller
+        right_distance_ = std::numeric_limits<float>::infinity(); //initiaze right distance to infinity, all other measurements will be smaller
+        left_distance_ = std::numeric_limits<float>::infinity(); //initiaze left distance to infinity, all other measurements will be smaller
+        back_distance_ = std::numeric_limits<float>::infinity();// initiaze back distance to infinity, all other measurements will be smaller
 
         // Initialize bumper states to false 
         bumpers_["bump_from_left"] = false;
@@ -107,6 +106,11 @@ private:
         float laser_offset = deg2rad(-90.0);
         uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;   
 
+        int front_idx_ = nLasers_ / 4; //find index of front obstacle distance measurement
+        int back_idx_ = nLasers_ * 3/4 ; //find index of back obstacle distance measurement
+        int left_idx_ = nLasers_ / 2; //find index of left obstacle distance measurement
+        int right_idx_ = 0; //find index of right obstacle distance measurement
+
         minLaserDist_ = std::numeric_limits<float>::infinity(); //find the closest obstacle to the current position of the robot
         if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) {
             for (uint32_t laser_idx = front_idx - desiredNLasers_; laser_idx < front_idx + desiredNLasers_; ++laser_idx) {
@@ -117,11 +121,6 @@ private:
                 minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]);
             }
         }
-
-        int front_idx_ = nLasers_ / 4; //find index of front obstacle distance measurement
-        int back_idx_ = nLasers_ * 3/4 ; //find index of back obstacle distance measurement
-        int left_idx_ = nLasers_ / 2; //find index of left obstacle distance measurement
-        int right_idx_ = 0; //find index of right obstacle distance measurement
 
         front_distance_ = laserRange_[front_idx_];  //extract distance of obstacle in front of robot
         right_distance_ = laserRange_[right_idx_];  //extract distance of obstacle to right of robot
@@ -157,9 +156,7 @@ private:
             if (detection.type == irobot_create_msgs::msg::HazardDetection::BUMP) {
                 bumpers_[detection.header.frame_id] = true;
                 RCLCPP_INFO(this->get_logger(), "Bumper pressed: %s",
-                            detection.header.frame_id.c_str());
-                
-                //implement steps here to handle bumper pressed event   
+                            detection.header.frame_id.c_str());  
             }
         }
     }
@@ -186,7 +183,6 @@ private:
             angular_ = 0.0; 
         }
         else { callstartupRoutine = false; } // Exit startup routine
-        
         
         // Move forward until minimum laser distance is 50cm or less
         if (front_distance_ > minimumFrontDistance)
@@ -259,9 +255,15 @@ private:
         for (const auto& [key, val] : bumpers_) {
             if (val) {
                 any_bumper_pressed = true;
+                //determine specifically which bumper was pressed 
+                pressed_bumper = key; // store the key of the pressed bumper
+                RCLCPP_INFO(this-> get_logger(),"Pressed bumper: %s", pressed_bumper.c_str());
                 break;
             }
-        }
+          
+        } //(should be addressed) CODE COMMENT: bumpers will not always have been pressed when we enter this function, so if we want to save which specific bumper was pressed, we should make a global variable and probably set it in isBumperPressed(),/n
+        //      so that it is set when the bumper is first pressed, and not overwritten with every iteration. 
+
         return any_bumper_pressed;
     }
 
@@ -270,17 +272,11 @@ private:
         // Handling bumper pressed event
         RCLCPP_INFO(this -> get_logger(),"Bumper pressed! Handling...");
 
-        //determine specifically which bumper was pressed 
-        for (const auto & [key, value] :bumpers_) {
-            if (value) {
-                pressed_bumper = key; // store the key of the pressed bumper
-                RCLCPP_INFO(this-> get_logger(),"Pressed bumper: %s", pressed_bumper.c_str());
-            }
-        } // CODE COMMENT: bumpers will not always have been pressed when we enter this function, so if we want to save which specific bumper was pressed, we should make a global variable and probably set it in isBumperPressed(),/n
-        //      so that it is set when the bumper is first pressed, and not overwritten with every iteration.
-
         // CODE COMMENT: Everything is called over and over again as the control loop is executed. This means that the last linear_ and angular_ values that are set in each loop will overwrite any previous logic. /n
         //         So if you set linear_ as a negative value in moveBack(), when you exit moveBack(), linear_ and angular_ will be set to the values following the moveBack() function, and the logic from moveBack() is overwritten.
+
+        //the desired logic here is that our code enters this function and moves back/executes this movement until the robot is far enough and is safely able to continue
+        //do we need a boolean to be able to enter this function and not exit until the robot is far enough back? or can we just use the distance traveled to determine whether we are far enough back to exit the function and continue with the rest of the control loop logic?
         if(pressed_bumper == "bump_from_left" || pressed_bumper == "bump_left")
         {
             RCLCPP_INFO(this -> get_logger(),"Left bumper was pressed - turn right");
@@ -302,41 +298,15 @@ private:
             linear_ = 0.0;
             angular_ = 0.2; // turn left
         }
-
-        /*
-        if
-        
-            RCLCPP_INFO(this -> get_logger(),"bumper was pressed");
-            if (abs(pos_x_-currentX) < 0.2)
-            {
-                RCLCPP_INFO(this -> get_logger(),"bumper was pressed - backup");
-                linear_ = -0.1; // back up
-                angular_ = 0.0;
-            }
-            else if (abs(normalizeAngle(yaw_ - currentYaw)) < deg2rad(20.0))
-            {
-                RCLCPP_INFO(this -> get_logger(),"bumper was pressed - turn");
-                linear_ = 0.0;
-                angular_ = 0.25; // turn left
-            }
-            else 
-            {
-                RCLCPP_INFO(this -> get_logger(),"bumper was pressed - exit handling");
-                enterBumperHandling = false; // exit bumper handling once backed up and turned ~90 degrees
-                linear_ = 0.0;
-                angular_ = 0.0;
-            }
-
-        return; */
         return;
     }
     
     void moveBack(int state_){
         if (state_ ==0){
             if(start_pos_x ==0.0 && start_pos_y_ ==0.0) { 
-                start_pos_x = pos_x_;
-                start_pos_y_ = pos_y_;
-                // CODE COMMENT
+                start_pos_x = currentX;
+                start_pos_y_ = currentY;
+                //  (addressed?) CODE COMMENT
                 // start_pos_x and start_pos_y_ are initialized to 0 with every iteration of the control loop, so this condition will always be true, and therefore when /n
                 //   these variables are accessed later, they will always equal pos_x_ and pos_y_. If you want to access the position of the robot at the moment the bumper was /n
                 //   pressed without updating every time, you can use currentX and currentY, which are set to the position of the robot at the moment the bumper is pressed in /n
@@ -524,6 +494,8 @@ private:
             setCurrentPositions();
         }
         // CODE COMMENT: this logic should be implemented somewhere else in the code. The linear and angular velocities will be overwritten before they are published. 
+        //GOOD CATCH. the intention here is to have a check that the robot isn't too close to anything before it starts moving (since we were having issues with this not being checked)
+        //any suggestions on where/how to fix this? a boolean called tooClose that avoids the remaining logic triggering/re-publishing velocity commands if the robot is too close to an obstacle? 
         else if (min_element(filteredLaserRange_.begin(), filteredLaserRange_.end()) >= minLaserDist_) //checks to see where the closest obstacle is located, and orients the robot away from it if within a certain distance threshold
         {
             obstacle_idx_ = min_element(filteredLaserRange_.begin(), filteredLaserRange_.end()) - filteredLaserRange_.begin();
