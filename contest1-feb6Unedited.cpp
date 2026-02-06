@@ -71,10 +71,9 @@ public:
         minimumFrontDistance = 0.5; //minimum distance the robot can have to an obstacle in front
         isTurning = false; //boolean to indicate whether the robot is currently turning
         enterBumperHandling = false; //boolean to indicate whether robot should enter bumper handling routine
-        backup = false; // boolean to indicate whether robot should be in backup routine within bumper handling
-        start_yaw_ = 0.0; // set to current yaw when setPositions() is called - used for some handler routines (e.g. startup routine)
-        start_pos_x_ = 0.0; // set to current X position when setPositions() is called - used for some handler routines (e.g. startup routine)
-        start_pos_y_ = 0.0; // set to current Y position when setPositions() is called - used for some handler routines (e.g. startup routine)
+        currentYaw = 0.0; // set to current yaw when setPositions() is called - used for some handler routines (e.g. startup routine)
+        currentX = 0.0; // set to current X position when setPositions() is called - used for some handler routines (e.g. startup routine)
+        currentY = 0.0; // set to current Y position when setPositions() is called - used for some handler routines (e.g. startup routine)
         anyBumperPressed = false; //boolean to indicate whether any bumper is pressed
         front_distance_ = std::numeric_limits<float>::infinity(); //initiaze front distance to infinity, all other measurements will be smaller
         right_distance_ = std::numeric_limits<float>::infinity(); //initiaze right distance to infinity, all other measurements will be smaller
@@ -273,64 +272,65 @@ private:
         // Handling bumper pressed event
         RCLCPP_INFO(this -> get_logger(),"Bumper pressed! Handling...");
 
-        // you want the robot to move back until the distance traveled is greater than a certain threshold.
-        //      To achieve this, we will use a backup boolean set to true when we enter the bumper handling routine, and then set to false once we have backed up enough
-        //      Because we don't want to boolean to be overwritten with every iteration, we should make it a global variable. In moveBack(), we can use this bool instead of the state_ variable.
-        //      Once we have backed up enough, backup is set to false (in moveBack()). Then, we enter a turning routine that executes until the robot has turned 45 degrees away from obstacle.
-        //      If we want to be more specific with the turning, we can choose the angle we turn by based on which bumper was pressed, but I don't think it's neccessary.
-        //      Once the robot has turned 45 degrees, we exit the bumper handling routine and return to whatever routine we we in before (startup, wallFollowing or random)
+        // CODE COMMENT: Everything is called over and over again as the control loop is executed. This means that the last linear_ and angular_ values that are set in each loop will overwrite any previous logic. /n
+        //         So if you set linear_ as a negative value in moveBack(), when you exit moveBack(), linear_ and angular_ will be set to the values following the moveBack() function, and the logic from moveBack() is overwritten.
 
-        if (backup)
+        //the desired logic here is that our code enters this function and moves back/executes this movement until the robot is far enough and is safely able to continue
+        //do we need a boolean to be able to enter this function and not exit until the robot is far enough back? or can we just use the distance traveled to determine whether we are far enough back to exit the function and continue with the rest of the control loop logic?
+        if(pressed_bumper == "bump_from_left" || pressed_bumper == "bump_left")
         {
-            moveBack();
+            RCLCPP_INFO(this -> get_logger(),"Left bumper was pressed - turn right");
+            moveBack(0); // CODE COMMENT: input to moveBack() should probably be a global variable
+            linear_ = 0.0;
+            angular_ = -0.2; // turn right
         }
-        else if (abs(yaw_ - start_yaw_) > deg2rad(45)) // Turn the robot 45 degrees away from obstacle
+        else if (pressed_bumper == "bump_front_center" || pressed_bumper == "bump_front_right" )
         {
-            if(pressed_bumper == "bump_from_left" || pressed_bumper == "bump_left" || pressed_bumper == "bump_front_center")
-                {
-                    RCLCPP_INFO(this -> get_logger(),"Left side or front bumper was pressed - turn right");
-                    linear_ = 0.0;
-                    angular_ = -0.2; // turn right
-                }
-                else // if (pressed_bumper == "bump_right" or "bumper_front_right") (only remaining options)
-                {
-                    RCLCPP_INFO(this -> get_logger(),"Right side bumper was pressed - turn left");
-                    linear_ = 0.0;
-                    angular_ = 0.2; // turn left
-                }
-            }
+            RCLCPP_INFO(this -> get_logger(),"Front bumper was pressed - back up");
+            moveBack(0);
+            linear_ = -0.1; // back up
+            angular_ = 0.0;
         }
-        else // if robot has turned 45 degrees away from obstacle, exit bumper handling routine and return to startup/wall following routine
+        else if (pressed_bumper == "bump_right")
         {
-            RCLCPP_INFO(this -> get_logger(),"Finished turning, exiting bumper handling routine");
-            enterBumperHandling = false; // exit bumper handling routine
+            RCLCPP_INFO(this -> get_logger(),"Right bumper was pressed - turn left");
+            moveBack(0);
+            linear_ = 0.0;
+            angular_ = 0.2; // turn left
         }
         return;
     }
+    
+    void moveBack(int state_){
+        if (state_ ==0){
+            if(start_pos_x ==0.0 && start_pos_y_ ==0.0) { 
+                start_pos_x = currentX;
+                start_pos_y_ = currentY;
+                //  (addressed?) CODE COMMENT
+                // start_pos_x and start_pos_y_ are initialized to 0 with every iteration of the control loop, so this condition will always be true, and therefore when /n
+                //   these variables are accessed later, they will always equal pos_x_ and pos_y_. If you want to access the position of the robot at the moment the bumper was /n
+                //   pressed without updating every time, you can use currentX and currentY, which are set to the position of the robot at the moment the bumper is pressed in /n
+                //   the setCurrentPositions() function (check line 472), and are not updated until the next time a bumper is pressed. Otherwise, you could just used pos_x_ and pos_y_ directly.
+            }
+        }
 
-    void moveBack()
-    {
-        // Move robot back until it has traveled a certain distance from the position where the bumper was pressed
-        //     note that the position where the bumper was pressed is saved as start_pos_x_ and start_pos_y_ when setCurrentPositions() is called in bumperPressedHandling() 
-        //     - this is updated/set at the moment the bumper is pressed, and is not updated until the next time a bumper is pressed, so it will save the position of the robot at the moment the bumper was pressed
-        
         double distance_traveled = std::sqrt(
-            std::pow(pos_x_ - start_pos_x_, 2) + std::pow(pos_y_ - start_pos_y_, 2)
-        ); // calculate distance traveled from the position where the bumper was pressed
+            std::pow(pos_x_ - start_pos_x, 2) + std::pow(pos_y_ - start_pos_y_, 2)
+        );
 
-        if (distance_traveled < 0.15) // if distance traveled is less than 15cm, keep backing up **NOTE: changed to 15cm because 5cm seemed too small
+        if(distance_traveled <target_distance) //CODE COMMENT: this is a global variable but it's only used here. If we leave it as a global variable, we should set it at the top with the other global variables, but since it's only used here, to just use 0.05 and not make it a variable, or make it local.
         {
             linear_ = -0.1; // back up
             angular_ = 0.0;
             RCLCPP_INFO(this -> get_logger(),"Backing up (beep!), distance traveled: %.2f", distance_traveled);
         }
-        else // if distance traveled is greater than or equal to 15cm, stop backing up and exit moveBack()
-        {
+        else {
             RCLCPP_INFO(this -> get_logger(),"Finished backing up, distance traveled: %.2f", distance_traveled);
+            state_ = 1; // CODE COMMENT: this variable is always 0 because moveBack is always called with 0 as an argument. This won't update the value. We can make a global variable for state if we want to keep track of it across function calls.
             linear_ = 0.0;
             angular_ = 0.0;
-            backup = false; // exit bumper handling routine
         }
+
     }
 
     double normalizeAngle(double angle)   
@@ -357,10 +357,11 @@ private:
 
     void setCurrentPositions()
     {
+        // CODE COMMENT: NOT USED RIGHT NOW - MAY BE USEFUL FOR BUMPER HANDLING
         // Set current positions and yaw for bumper handling routine
-        start_pos_x_ = pos_x_;
-        start_pos_y_ = pos_y_;
-        start_yaw_ = yaw_;
+        currentX = pos_x_;
+        currentY = pos_y_;
+        currentYaw = yaw_;
     }
 
     void randomSearchAlgorithm() 
@@ -376,30 +377,23 @@ private:
         static bool RandomTurn = false; // CODE COMMENT: this variable is always false because it's defined in the function. If we want to keep track of it across function calls, we should make it a global variable.
         static double target_yaw = 0.0; // CODE COMMENT: this variable is always 0 because it's defined in the function. If we want to keep track of it across function calls, we should make it a global variable.
         
-        if (front_distance <= 0.5 && !RandomTurn) 
-        {
+        if (front_distance <= 0.5 && !RandomTurn) {
             linear_ = -0.1; // back up if too close to obstacle // CODE COMMENT: this is overwritten in the next iterations a few miliseconds later, so might as well be 0
             angular_ = 0.0;
             RandomTurn = true;
             
-        }
-        else 
-        {
+        }else {
             linear_ = 0.2;
             angular_ = 0.0;
         }
 
-        if (!RandomTurn) 
-        {
-            target_yaw = normalizeAngle(start_yaw_  + random_angle);
-        }
-        else
-        {
-            angular_ = (normalizeAngle(target_yaw - start_yaw_) > 0) ? 0.2 : -0.2; // Set angular velocity to turn towards the target yaw
+        if (!RandomTurn) {
+            target_yaw = normalizeAngle(currentYaw  + random_angle);
+        }else{
+            angular_ = (normalizeAngle(target_yaw - currentYaw) > 0) ? 0.2 : -0.2; // Set angular velocity to turn towards the target yaw
             linear_ = 0.0;
 
-            if (abs(normalizeAngle(target_yaw - start_yaw_)) < 0.1) 
-            {
+            if (abs(normalizeAngle(target_yaw - currentYaw)) < 0.1) {
                 angular_ = 0.0;
                 RandomTurn = false;
             }
@@ -486,18 +480,20 @@ private:
 
             filteredLaserRange_.clear();
         }
+        //set start x and y position equal to 0
+        start_pos_x = 0.0;
+        start_pos_y_ = 0.0;
+        target_distance = 0.05; // set target distance to move back when bumper is pressed
 
         // Check if any bumper is pressed
-        anyBumperPressed = isBumpersPressed(); // checks if any bumper has been pressed (updated every iteration) - if yes, saves which specific bumper was pressed in pressed_bumper variable
+        anyBumperPressed = isBumpersPressed();
 
         // Set up conditional handling for bumper pressed or startup
         if (anyBumperPressed) // if true, set flag to enter bumper handling routine and define current positions
         {
-            enterBumperHandling = true; // set flag to enter bumper handling routine (true until bumper handling is complete)   
-            backup = true; // set flag to enter backup routine within bumper handling
-            setCurrentPositions(); // saves the yaw and position of the robot at the moment the bumper was pressed
+            enterBumperHandling = true;   
+            setCurrentPositions();
         }
-
         // CODE COMMENT: this logic should be implemented somewhere else in the code. The linear and angular velocities will be overwritten before they are published. 
         //GOOD CATCH. the intention here is to have a check that the robot isn't too close to anything before it starts moving (since we were having issues with this not being checked)
         //any suggestions on where/how to fix this? a boolean called tooClose that avoids the remaining logic triggering/re-publishing velocity commands if the robot is too close to an obstacle? 
@@ -531,7 +527,7 @@ private:
             turnClockwise = max_element_idx < (filteredLaserRange_.size() / 2); // true = turn right, false = turn left
             startup = false;
         }
-        
+
         // ENTER ROUTINE BASED ON CONDITIONS //
         if (enterBumperHandling)  { bumperPressedHandling(); } // handle bumper pressed event
         else if (callstartupRoutine) { startupRoutine(); } // perform startup routine (orient robot to face furthest wall & approach)
@@ -580,11 +576,13 @@ private:
 
     bool enterBumperHandling;
     bool anyBumperPressed;
-    bool backup; // boolean to indicate whether robot should be in backup routine within bumper handling
 
     bool isTurning;
     float minimumFrontDistance;
 
+    float currentYaw;
+    float currentX;
+    float currentY;
     float max_element;
     int max_element_idx;
     bool turnClockwise;
@@ -595,10 +593,10 @@ private:
     float back_distance_; 
 
     float obstacle_idx_;
-    float start_pos_x_;
+    float start_pos_x;
     float start_pos_y_;
-    float start_yaw_;
     float distance_traveled;
+    float target_distance; // distance to move back when bumper is pressed
     std::string pressed_bumper;
 
     // Stuck detection
