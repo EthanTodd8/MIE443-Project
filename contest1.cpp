@@ -284,6 +284,7 @@ private:
         return;
     }
 
+
     double normalizeAngle(double angle)   
     {
         // Normalize angle in radian so it stars within pi to -pi. Used during YawChange calc - while turning a corner
@@ -392,6 +393,26 @@ private:
             enterBumperHandling = true;   
             setCurrentPositions();
         }
+        else if (min_element(filteredLaserRange_.begin(), filteredLaserRange_.end()) >= minLaserDist_) //checks to see where the closest obstacle is located, and orients the robot away from it if within a certain distance threshold
+        {
+            obstacle_idx_ = min_element(filteredLaserRange_.begin(), filteredLaserRange_.end()) - filteredLaserRange_.begin();
+            if(obstacle_idx_ < front_idx_ )
+            {
+                angular_=-0.2; //turn to the left because the obstacle is on the right
+                linear_ = 0.0;
+            }
+            else if (obstacle_idx_ > front_idx_)
+            {
+                angular_= 0.2; //turn to the right because the obstacle is on the left
+                linear_ = 0.0;
+            }
+            else if (obstacle_idx_ == front_idx_)
+            {
+                angular_ = 0.0;
+                linear_ = -0.1; //back up if the obstacle is directly in front
+            }
+            
+        }
         else if (startup) // if true (first loop), set initial goal yaw and define current positions and set to false
         {
             initialGoalYaw = yaw_;
@@ -460,6 +481,7 @@ private:
     float left_distance_;
     float back_distance_; 
 
+    float obstacle_idx_
 };
 
 int main(int argc, char** argv)
