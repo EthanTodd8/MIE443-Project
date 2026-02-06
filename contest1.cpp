@@ -259,6 +259,38 @@ private:
     {
         // Handling bumper pressed event
         RCLCPP_INFO(this -> get_logger(),"Bumper pressed! Handling...");
+
+        //determine specifically which bumper was pressed 
+        for (const auto & [key, value] :bumpers_) {
+            if (value) {
+                pressed_bumper = key; // store the key of the pressed bumper
+                RCLCPP_INFO(this-> get_logger(),"Pressed bumper: %s", pressed_bumper.c_str());
+            }
+        }
+        if(pressed_bumper == "bump_from_left" || pressed_bumper == "bump_left")
+        {
+            RCLCPP_INFO(this -> get_logger(),"Left bumper was pressed - turn right");
+            moveBack(0);
+            linear_ = 0.0;
+            angular_ = -0.2; // turn right
+        }
+        else if (pressed_bumper == "bump_front_center" || pressed_bumper == "bump_front_right" )
+        {
+            RCLCPP_INFO(this -> get_logger(),"Front bumper was pressed - back up");
+            moveBack(0);
+            linear_ = -0.1; // back up
+            angular_ = 0.0;
+        }
+        else if (pressed_bumper == "bump_right")
+        {
+            RCLCPP_INFO(this -> get_logger(),"Right bumper was pressed - turn left");
+            moveBack(0);
+            linear_ = 0.0;
+            angular_ = 0.2; // turn left
+        }
+
+        /*
+        if
         
             RCLCPP_INFO(this -> get_logger(),"bumper was pressed");
             if (abs(pos_x_-currentX) < 0.2)
@@ -281,9 +313,35 @@ private:
                 angular_ = 0.0;
             }
 
+        return; */
         return;
     }
+    void moveBack(int state_){
+        if (state_ ==0){
+            if(start_pos_x ==0.0 && start_pos_y_ ==0.0) {
+                start_pos_x = pos_x_;
+                start_pos_y_ = pos_y_;
+            }
+        }
 
+        double distance_travelet = std::sqt(
+            std::pow(pos_x_ - start_pos_x, 2) + std::pow(pos_y_ - start_pos_y_, 2)
+        );
+
+        if(distance_traveled <target_distance)
+        {
+            linear_ = -0.1; // back up
+            angular_ = 0.0;
+            RCLCPP_INFO(this -> get_logger(),"Backing up (beep!), distance traveled: %.2f", distance_traveled);
+        }
+        else {
+            RCLCPP_INFO(this -> get_logger(),"Finished backing up, distance traveled: %.2f", distance_traveled);
+            state_ = 1;
+            linear_ = 0.0;
+            angular_ = 0.0;
+        }
+
+    }
 
     double normalizeAngle(double angle)   
     {
@@ -384,6 +442,11 @@ private:
         // Define filteredLaserRange array with values from laserRange_ above 20cm
         createLasersArray(); 
 
+        //set start x and y position equal to 0
+        start_pos_x = 0.0;
+        start_pos_y_ = 0.0;
+        target_distance = 0.05; // set target distance to move back when bumper is pressed
+
         // Check if any bumper is pressed
         anyBumperPressed = isBumpersPressed();
 
@@ -481,7 +544,12 @@ private:
     float left_distance_;
     float back_distance_; 
 
-    float obstacle_idx_
+    float obstacle_idx_;
+    float start_pos_x;
+    float start_pos_y_;
+    float distance_traveled;
+    float target_distance; // distance to move back when bumper is pressed
+    std::string pressed_bumper;
 };
 
 int main(int argc, char** argv)
