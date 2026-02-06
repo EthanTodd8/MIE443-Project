@@ -4,6 +4,8 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#include <random>
+#include <cmath>
 
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
@@ -46,6 +48,12 @@ public:
         // Timer for main control loop at 10 Hz
         timer_ = this->create_wall_timer(
             100ms, std::bind(&Contest1Node::controlLoop, this));
+
+        // Obtain a random seed from the system clock
+        unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+        // Initialize the Mersenne Twister pseudo-random number generator
+        std::mt19937 gen(seed); 
+
 
         // Initialize variables
         start_time_ = this->now();
@@ -305,6 +313,42 @@ private:
         currentX = pos_x_;
         currentY = pos_y_;
         currentYaw = yaw_;
+    }
+
+    void randomSearchAlgorithm() {
+        // Implement a random search algorithm for exploration
+        static std::default_random_engine generator;
+        static std::uniform_real_distribution<double> distribution(-M_PI, M_PI);
+
+        // Generate a random number
+        double random_angle = distribution(generator);
+        RCLCPP_INFO(this->get_logger(), "Randomly turning to angle: %f radians", random_angle);
+        
+        static bool RandomTurn = false;
+        static double target_yaw = 0.0;
+        
+        if (front_distance <= 0.5 && !RandomTurn) {
+            linear_ = -0.1; // back up if too close to obstacle
+            angular_ = 0.0;
+            RandomTurn = true;
+            
+        }else {
+            linear_ = 0.2;
+            angular_ = 0.0;
+        }
+
+        if (!RandomTurn) {
+            target_yaw = normalizeAngle(currentYaw  + random_angle);
+        }else{
+            angular_ = (normalizeAngle(target_yaw - currentYaw) > 0) ? 0.2 : -0.2; // Set angular velocity to turn towards the target yaw
+            linear_ = 0.0;
+
+            if (abs(normalizeAngle(target_yaw - currentYaw)) < 0.1) {
+                angular_ = 0.0;
+                RandomTurn = false;
+            }
+        }
+
     }
 
     #pragma endregion Utilities
