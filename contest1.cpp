@@ -82,6 +82,8 @@ public:
         right_distance_ = std::numeric_limits<float>::infinity(); //initiaze right distance to infinity, all other measurements will be smaller
         left_distance_ = std::numeric_limits<float>::infinity(); //initiaze left distance to infinity, all other measurements will be smaller
         back_distance_ = std::numeric_limits<float>::infinity();// initiaze back distance to infinity, all other measurements will be smaller
+        target_yaw = 0.0; // initialize target yaw for random routine
+        randomTurn = false; // initialize randomTurn boolean for random routine
 
         // Initialize bumper states to false 
         bumpers_["bump_from_left"] = false;
@@ -228,42 +230,38 @@ private:
 
     void randomRoutine()
     {
-        // Implement a random search algorithm for exploration
-        static std::default_random_engine generator;
-        static std::uniform_real_distribution<double> distribution(-M_PI, M_PI);
-
+        // enter routine
+        // check if obstalce present
+        // if yes, set random target angle, and turn towards until reached
+        // if no, move forward
+        
         // Generate a random number
-        double random_angle = distribution(generator);
         RCLCPP_INFO(this->get_logger(), "Randomly turning to angle: %f radians", random_angle);
-        
-        static bool RandomTurn = false; // CODE COMMENT: this variable is always false because it's defined in the function. If we want to keep track of it across function calls, we should make it a global variable.
-        static double target_yaw = 0.0; // CODE COMMENT: this variable is always 0 because it's defined in the function. If we want to keep track of it across function calls, we should make it a global variable.
-        
-        if (front_distance <= 0.5 && !RandomTurn) 
-        {
-            linear_ = -0.1; // back up if too close to obstacle // CODE COMMENT: this is overwritten in the next iterations a few miliseconds later, so might as well be 0
-            angular_ = 0.0;
-            RandomTurn = true;   
-        }
-        else 
+
+        if (front_distance_ > 0.5 && !randomTurn) 
         {
             linear_ = 0.2;
             angular_ = 0.0;
-        }
-
-        if (!RandomTurn) 
-        {
-            target_yaw = normalizeAngle(start_yaw_  + random_angle);
+            return;
         }
         else
         {
-            angular_ = (normalizeAngle(target_yaw - start_yaw_) > 0) ? 0.2 : -0.2; // Set angular velocity to turn towards the target yaw
+            static std::default_random_engine generator;
+            static std::uniform_real_distribution<double> distribution(-M_PI, M_PI);
+            double random_angle = distribution(generator);
+            target_yaw = normalizeAngle(yaw_  + random_angle);
+            randomTurn = true;
+        }
+
+        if (randomTurn)
+        {
+            angular_ = (normalizeAngle(target_yaw - yaw_) > 0) ? 0.2 : -0.2; // Set angular velocity to turn towards the target yaw
             linear_ = 0.0;
 
-            if (abs(normalizeAngle(target_yaw - start_yaw_)) < 0.1) 
+            if (abs(normalizeAngle(target_yaw - yaw_)) < 0.1) 
             {
                 angular_ = 0.0;
-                RandomTurn = false;
+                randomTurn = false;
             }
         }
     }
@@ -536,8 +534,6 @@ private:
             callstartupRoutine = true;
             isTurning = false;
             enterBumperHandling = false;
-
-            filteredLaserRange_.clear();
         }
 
         // Check if any bumper is pressed
@@ -559,6 +555,7 @@ private:
             // Determine turn direction based on index of maximum distance
             turnClockwise = max_element_idx < (filteredLaserRange_.size() / 2); // true = turn right, false = turn left
             startup = false;
+            callstartupRoutine = true; // set flag to call startup routine in control loop
         }
         
         // ENTER ROUTINE BASED ON CONDITIONS //
@@ -629,6 +626,10 @@ private:
     float obstacle_idx_;
     bool obstacle_on_right_;
     bool obstacle_on_left_;
+
+    float target_yaw; // used in random routine to set a random target yaw to turn towards when the robot is too close to an obstacle
+    bool randomTurn; // boolean to indicate whether robot should be in random turn routine
+
 
     float start_pos_x_;
     float start_pos_y_;
