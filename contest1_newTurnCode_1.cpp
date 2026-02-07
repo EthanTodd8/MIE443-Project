@@ -65,23 +65,33 @@ public:
         pos_y_ = 0.0; // initialize y position
         yaw_ = 0.0; //initialize yaw
         minLaserDist_ = std::numeric_limits<float>::infinity(); //initialize minimum laser distance to infinity (ensures all other measurements will be smaller)
+        minLaserDist_idx_ = 0; //initialize index of minimum laser distance measurement
         nLasers_ = 0; //initilaize counter for number of laser data points
         desiredNLasers_ = 0; // part of the default code: for setting up minLaserDistance in laserCallback - sets up number of laser measurements to consider on either side of the center front laser measurement for minimum laser distance calculation (set as however many lasers are within the desiredAngle range)
-        desiredAngle_ = 5; // part of the default code: for setting up minLaserDistance in laserCallback - sets up angle range to consider for minimum laser distance calculation - 5 degrees on either side of the center front laser measurement
-        minimumFrontDistance = 0.5; //minimum distance the robot can have to an obstacle in front
+        desiredAngle_ = 90; // CHANGED FROM 5 TO 90- defines the angle range on either side of the front center laser measurement to consider for minimum laser distance calculation (returns the min laser distance in this range) - set to 90 degrees by default so that we consider the full front half of the robot for minimum laser distance calculation
+        minimumFrontDistance_ = 0.5; // minimum distance the robot can have to an obstacle in front before it is considered too close and needs to turn away
+        minimumObstacleDistance = 0.4; //minimum distance the robot can have to an obstacle in any direction before it is considered too close and needs to turn away
         isTurning = false; //boolean to indicate whether the robot is currently turning
         enterBumperHandling = false; //boolean to indicate whether robot should enter bumper handling routine
-        currentYaw = 0.0; // set to current yaw when setPositions() is called - used for some handler routines (e.g. startup routine)
-        currentX = 0.0; // set to current X position when setPositions() is called - used for some handler routines (e.g. startup routine)
-        currentY = 0.0; // set to current Y position when setPositions() is called - used for some handler routines (e.g. startup routine)
+        backup = false; // boolean to indicate whether robot should be in backup routine within bumper handling
+        start_yaw_ = 0.0; // set to current yaw when setPositions() is called - used for some handler routines (e.g. startup routine)
+        start_pos_x_ = 0.0; // set to current X position when setPositions() is called - used for some handler routines (e.g. startup routine)
+        start_pos_y_ = 0.0; // set to current Y position when setPositions() is called - used for some handler routines (e.g. startup routine)
         anyBumperPressed = false; //boolean to indicate whether any bumper is pressed
         front_distance_ = std::numeric_limits<float>::infinity(); //initiaze front distance to infinity, all other measurements will be smaller
         right_distance_ = std::numeric_limits<float>::infinity(); //initiaze right distance to infinity, all other measurements will be smaller
         left_distance_ = std::numeric_limits<float>::infinity(); //initiaze left distance to infinity, all other measurements will be smaller
         back_distance_ = std::numeric_limits<float>::infinity();// initiaze back distance to infinity, all other measurements will be smaller
+        front_idx_ = 0; //find index of front obstacle distance measurement
+        back_idx_ = 0; //find index of back obstacle distance measurement
+        left_idx_ = 0; //find index of left obstacle distance measurement
+        right_idx_ = 0; //find index of right obstacle distance measurement
+
+        target_yaw = 0.0; // initialize target yaw for random routine
+        randomTurn = false; // initialize randomTurn boolean for random routine
 
         // Initialize bumper states to false 
-        bumpers_["bump_from_left"] = false;
+        bumpers_["bump_front_left"] = false;
         bumpers_["bump_front_center"] = false;
         bumpers_["bump_front_right"] = false;
         bumpers_["bump_left"] = false;
@@ -102,23 +112,28 @@ private:
         //RCLCPP_INFO(this->get_logger(), "Size of laser scan array: %d, and size of offset: %d", nLasers_, desiredNLasers_);
         //RCLCPP_INFO(this->get_logger(), "angle max %.2f, angle min %.2f, range_min %.2f, range_max %.2f", scan->angle_max, scan->angle_min, scan->range_min, scan->range_max);
 
+        /* THIS IS PART OF THE DEFAULT CODE, BUT IT'S BECOME UNNECCESSARY BECAUSE FRONT_IDX CALCULATION IS EQUIVALENT TO FRONT_IDX_ CALCULATION - not sure if we should remove it though, because it is apart of the default code.
         // Find minimum laser distance within +/- desiredAngle from front center
         float laser_offset = deg2rad(-90.0);
         uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;   
+        */
 
-        int front_idx_ = nLasers_ / 4; //find index of front obstacle distance measurement
-        int back_idx_ = nLasers_ * 3/4 ; //find index of back obstacle distance measurement
-        int left_idx_ = nLasers_ / 2; //find index of left obstacle distance measurement
-        int right_idx_ = 0; //find index of right obstacle distance measurement
+        front_idx_ = nLasers_ / 4; //find index of front obstacle distance measurement
+        back_idx_ = nLasers_ * 3/4 ; //find index of back obstacle distance measurement
+        left_idx_ = nLasers_ / 2; //find index of left obstacle distance measurement
+        right_idx_ = 0; //find index of right obstacle distance measurement
 
-        minLaserDist_ = std::numeric_limits<float>::infinity(); //find the closest obstacle to the current position of the robot
-        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) {
-            for (uint32_t laser_idx = front_idx - desiredNLasers_; laser_idx < front_idx + desiredNLasers_; ++laser_idx) {
-                minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]);
+
+        minLaserDist_ = std::numeric_limits<float>::infinity(); //find the closest obstacle to the current position of the robot FROM front_idx_ - desiredNLasers_ to front_idx_ + desiredNLasers_ (NOT FULL SCAN AROUND ROBOT) 
+        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) { 
+            for (uint32_t laser_idx = front_idx_ - desiredNLasers_; laser_idx < front_idx_ + desiredNLasers_; ++laser_idx) {
+                minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]); // find minimum laser distance within desired angle range
+                minLaserDist_idx_ = laser_idx; // index of closest obstacle within the desired angle range
             }
         } else {
             for (uint32_t laser_idx = 0; laser_idx < nLasers_; ++laser_idx) {
-                minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]);
+                minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]); // find minimum laser distance within the full scan around the robot (if desired angle range is larger than the total scan range)
+                minLaserDist_idx_ = laser_idx; // index of closest obstacle in the full scan
             }
         }
 
@@ -126,6 +141,8 @@ private:
         right_distance_ = laserRange_[right_idx_];  //extract distance of obstacle to right of robot
         left_distance_ = laserRange_[left_idx_];  //extract distance of obstacle to left of robot
         back_distance_ = laserRange_[back_idx_]; //extract distance of obstacle behind robot
+
+        createLasersArray(); // Define filteredLaserRange array with values from laserRange_ above 20cm
 
         RCLCPP_INFO(this->get_logger(), "front_distance_: %f, right_distance_: %f, left_distance: %f, back_distance: %f" , front_distance_, right_distance_, left_distance_, back_distance_);
     }
@@ -185,7 +202,7 @@ private:
         else { callstartupRoutine = false; } // Exit startup routine
         
         // Move forward until minimum laser distance is 50cm or less
-        if (front_distance_ > minimumFrontDistance)
+        if (front_distance_ > minimumFrontDistance_)
         {
             RCLCPP_INFO(this -> get_logger(),"drive forwards");
             linear_ = 0.25;
@@ -207,6 +224,7 @@ private:
         {
             if (left_distance_ <= 0.5 && right_distance_ > 0.01) { _turnClockwise = true; } // turn right if left wall is also close
             isTurning = true;
+            setCurrentPositions(); // set current position and yaw as the starting position and yaw for the turning routine
         }
         
         if (!isTurning) // robot is clear ahead
@@ -215,13 +233,53 @@ private:
             angular_ = 0.0;
         }
         else { turnRobot(_turnClockwise); } // robot is turning
-            
+
         return; 
+    }
+
+    void randomRoutine()
+    {
+        // enter routine
+        // check if obstalce present
+        // if yes, set random target angle, and turn towards until reached
+        // if no, move forward
+        
+        //RCLCPP_INFO(this->get_logger(), "Randomly turning to angle: %f radians", random_angle);
+
+        if (front_distance_ > 0.5 && !randomTurn) 
+        {
+            linear_ = 0.2;
+            angular_ = 0.0;
+            return;
+        }
+        else
+        {
+            static std::default_random_engine generator;
+            static std::uniform_real_distribution<double> distribution(-M_PI, M_PI);
+            double random_angle = distribution(generator);
+            target_yaw = normalizeAngle(yaw_  + random_angle);
+            randomTurn = true;
+        }
+
+        if (randomTurn)
+        {
+            angular_ = (normalizeAngle(target_yaw - yaw_) > 0) ? 0.2 : -0.2; // Set angular velocity to turn towards the target yaw
+            linear_ = 0.0;
+
+            if (abs(normalizeAngle(target_yaw - yaw_)) < 0.1) 
+            {
+                angular_ = 0.0;
+                randomTurn = false;
+            }
+        }
     }
 
     #pragma endregion Routines
 
     #pragma region Utilities
+
+    // functions that are called in the routines to perform specific tasks (e.g. turning robot, handling bumper)
+   
 
     void turnRobot(bool _turnClockwise)
     {
@@ -232,14 +290,14 @@ private:
         float min_element = *std::min_element(begin(filteredLaserRange_), end(filteredLaserRange_)); // find minimum distance from filtered laser ranges
         float distanceDifference = _turnClockwise ? abs(left_distance_ - min_element) : abs(right_distance_ - min_element); // calculate distance difference based on turn direction
 
-        if (distanceDifference > 0.01)  // if not yet reached target rotation
+        if (distanceDifference > 0.01 && abs(normalizeAngle(start_yaw_ - yaw_)) < deg2rad(90))  // rotate until minimum laser distance is on beside robot, or to a max turn angle of 90 degrees
         { 
             linear_ = 0.0;
-            angular_ = _turnClockwise ? 0.1 : -0.1; // turn in specified direction
+            angular_ = _turnClockwise ? -0.1 : 0.1; // turn in specified direction
         }
         else // reached target rotation
         {
-            RCLCPP_INFO(this->get_logger(), "Reached 90 degrees, moving to final stop"); 
+            RCLCPP_INFO(this->get_logger(), "Turn complete, moving to final stop"); 
             linear_ = 0.2;
             angular_ = 0.0; 
             isTurning = false;
@@ -247,6 +305,97 @@ private:
 
         return;
     }
+
+    void bumperPressedHandling() 
+    {
+        // Handling bumper pressed event
+        RCLCPP_INFO(this -> get_logger(),"Bumper pressed! Handling...");
+
+        // you want the robot to move back until the distance traveled is greater than a certain threshold.
+        //      To achieve this, we will use a backup boolean set to true when we enter the bumper handling routine, and then set to false once we have backed up enough
+        //      Because we don't want to boolean to be overwritten with every iteration, we should make it a global variable. In moveBack(), we can use this bool instead of the state_ variable.
+        //      Once we have backed up enough, backup is set to false (in moveBack()). Then, we enter a turning routine that executes until the robot has turned 45 degrees away from obstacle.
+        //      If we want to be more specific with the turning, we can choose the angle we turn by based on which bumper was pressed, but I don't think it's neccessary.
+        //      Once the robot has turned 45 degrees, we exit the bumper handling routine and return to whatever routine we we in before (startup, wallFollowing or random)
+
+        if (backup)
+        {
+            moveBack();
+            RCLCPP_INFO(this -> get_logger(),"backup...");
+        }
+        else if (abs(normalizeAngle(yaw_ - start_yaw_)) < deg2rad(90)) // Turn the robot 45 degrees away from obstacle
+        {
+            //RCLCPP_INFO(this -> get_logger(),"yaw_ = %f, start_yaw_ = %f", yaw_, start_yaw_);
+            if(pressed_bumper == "bump_front_left" || pressed_bumper == "bump_left" || pressed_bumper == "bump_front_center")
+            {
+                RCLCPP_INFO(this -> get_logger(),"Left side or front bumper was pressed - turn right");
+                linear_ = 0.0;
+                angular_ = -0.2; // turn right
+            }
+            else // if (pressed_bumper == "bump_right" or "bump_front_right") (only remaining options)
+            {
+                RCLCPP_INFO(this -> get_logger(),"Right side bumper was pressed - turn left");
+                linear_ = 0.0;
+                angular_ = 0.2; // turn left
+            }
+        }
+        else // if robot has turned 45 degrees away from obstacle, exit bumper handling routine and return to startup/wall following routine
+        {
+            RCLCPP_INFO(this -> get_logger(),"yaw_ = %f, start_yaw_ = %f", yaw_, start_yaw_);
+            RCLCPP_INFO(this -> get_logger(),"Finished turning, exiting bumper handling routine");
+            enterBumperHandling = false; // exit bumper handling routine
+        }
+        return;
+    }
+
+    void moveBack()
+    {
+        // Move robot back until it has traveled a certain distance from the position where the bumper was pressed
+        //     note that the position where the bumper was pressed is saved as start_pos_x_ and start_pos_y_ when setCurrentPositions() is called in bumperPressedHandling() 
+        //     - this is updated/set at the moment the bumper is pressed, and is not updated until the next time a bumper is pressed, so it will save the position of the robot at the moment the bumper was pressed
+        
+        double distance_traveled = std::sqrt(
+            std::pow(pos_x_ - start_pos_x_, 2) + std::pow(pos_y_ - start_pos_y_, 2)
+        ); // calculate distance traveled from the position where the bumper was pressed
+
+        if (distance_traveled < 0.15) // if distance traveled is less than 15cm, keep backing up **NOTE: changed to 15cm because 5cm seemed too small
+        {
+            linear_ = -0.1; // back up
+            angular_ = 0.0;
+            RCLCPP_INFO(this -> get_logger(),"Backing up (beep!), distance traveled: %.2f", distance_traveled);
+        }
+        else // if distance traveled is greater than or equal to 15cm, stop backing up and exit moveBack()
+        {
+            RCLCPP_INFO(this -> get_logger(),"Finished backing up, distance traveled: %.2f", distance_traveled);
+            linear_ = 0.0;
+            angular_ = 0.0;
+            backup = false; // exit bumper handling routine
+        }
+    }
+
+    void obstacleAvoidance()
+    {
+        // adding obstacle avoidance function to be called in the control loop
+        //     If the robot is within a certain distance threshold of an obstacle, it will turn away from the obstacle until it is not longer within the distance threshold.
+        //     what we know - the robot is too close to an obstacle if minLaserDist_ is less than minimumObstacleDistance
+        //     what we want to do - if the robot is too close to an obstacle, we want it to turn away from the obstacle until it is no longer too close (using is_obstacle_on_right/left bools to choose direction).
+        //     NOTE: i removed logic for front distance becauce that handling is included in wall following routine.
+
+        if (obstacle_on_right_) 
+        {
+            RCLCPP_INFO(this->get_logger(), "Obstacle on the right, turning left");
+            linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the right, since we were having some issues with that.
+            angular_ = 0.2; // turn left
+        }
+        else if (obstacle_on_left_)
+        {
+            RCLCPP_INFO(this->get_logger(), "Obstacle on the left, turning right");
+            linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the left, since we were having some issues with that.
+            angular_ = -0.2; // turn right
+        }
+    }
+
+    // functions that are called in the control loop to check conditions and set flags for which routine to enter (e.g. check if any bumper is pressed, check if robot is stuck, check if robot is too close to an obstacle)
 
     bool isBumpersPressed()
     {
@@ -267,71 +416,64 @@ private:
         return any_bumper_pressed;
     }
 
-    void bumperPressedHandling()
+    bool isStuck()
     {
-        // Handling bumper pressed event
-        RCLCPP_INFO(this -> get_logger(),"Bumper pressed! Handling...");
+        if (!stuck_timer_active_) 
+        {
+            stuck_start_time = this->now();
+            stuck_start_x_ = pos_x_;
+            stuck_start_y_ = pos_y_;
+            stuck_start_yaw_ = yaw_;
+            stuck_timer_active_ = true;
+            return false;
+        }
 
-        // CODE COMMENT: Everything is called over and over again as the control loop is executed. This means that the last linear_ and angular_ values that are set in each loop will overwrite any previous logic. /n
-        //         So if you set linear_ as a negative value in moveBack(), when you exit moveBack(), linear_ and angular_ will be set to the values following the moveBack() function, and the logic from moveBack() is overwritten.
+        double dist = std::hypot(pos_x_ - stuck_start_x_, pos_y_ - stuck_start_y_);
+        double yaw_change = std::abs(normalizeAngle(yaw_ - stuck_start_yaw_));
+        double time_elapsed = (this->now() - stuck_start_time).seconds();
 
-        //the desired logic here is that our code enters this function and moves back/executes this movement until the robot is far enough and is safely able to continue
-        //do we need a boolean to be able to enter this function and not exit until the robot is far enough back? or can we just use the distance traveled to determine whether we are far enough back to exit the function and continue with the rest of the control loop logic?
-        if(pressed_bumper == "bump_from_left" || pressed_bumper == "bump_left")
+        // Reset timer if robot is clearly moving forward
+        if (dist > STUCK_DISTANCE_THRESH) 
         {
-            RCLCPP_INFO(this -> get_logger(),"Left bumper was pressed - turn right");
-            moveBack(0); // CODE COMMENT: input to moveBack() should probably be a global variable
-            linear_ = 0.0;
-            angular_ = -0.2; // turn right
+            stuck_timer_active_ = false;
+            return false;
         }
-        else if (pressed_bumper == "bump_front_center" || pressed_bumper == "bump_front_right" )
-        {
-            RCLCPP_INFO(this -> get_logger(),"Front bumper was pressed - back up");
-            moveBack(0);
-            linear_ = -0.1; // back up
-            angular_ = 0.0;
+
+        // If turning in place for too long → stuck
+        if (yaw_change > STUCK_YAW_THRESH && time_elapsed > STUCK_TIME_THRESH) {
+            RCLCPP_WARN(this->get_logger(),
+                "Robot appears stuck (%.2fm moved, %.1f deg turned over %.1fs)",
+                dist, rad2deg(yaw_change), time_elapsed);
+            stuck_timer_active_ = false;
+            return true;
         }
-        else if (pressed_bumper == "bump_right")
-        {
-            RCLCPP_INFO(this -> get_logger(),"Right bumper was pressed - turn left");
-            moveBack(0);
-            linear_ = 0.0;
-            angular_ = 0.2; // turn left
-        }
-        return;
+
+        return false;
     }
-    
-    void moveBack(int state_){
-        if (state_ ==0){
-            if(start_pos_x ==0.0 && start_pos_y_ ==0.0) { 
-                start_pos_x = currentX;
-                start_pos_y_ = currentY;
-                //  (addressed?) CODE COMMENT
-                // start_pos_x and start_pos_y_ are initialized to 0 with every iteration of the control loop, so this condition will always be true, and therefore when /n
-                //   these variables are accessed later, they will always equal pos_x_ and pos_y_. If you want to access the position of the robot at the moment the bumper was /n
-                //   pressed without updating every time, you can use currentX and currentY, which are set to the position of the robot at the moment the bumper is pressed in /n
-                //   the setCurrentPositions() function (check line 472), and are not updated until the next time a bumper is pressed. Otherwise, you could just used pos_x_ and pos_y_ directly.
+
+    bool tooCloseToObstacle()
+    {
+        // check through idices in the front half of the laser range data (90 degrees on either side of the front center laser measurement)
+
+        if (minLaserDist_ < minimumObstacleDistance) 
+        {
+            RCLCPP_WARN(this->get_logger(), "Too close to obstacle! Executing avoidance maneuver.");
+            if (obstacle_idx_ < front_idx_) // obstacle is on the right
+            {
+                obstacle_on_right_ = true;
+                obstacle_on_left_ = false;
             }
+            else if (obstacle_idx_ > front_idx_) // obstacle is on the left
+            {
+                obstacle_on_right_ = false;
+                obstacle_on_left_ = true;
+            }
+            return true;
         }
-
-        double distance_traveled = std::sqrt(
-            std::pow(pos_x_ - start_pos_x, 2) + std::pow(pos_y_ - start_pos_y_, 2)
-        );
-
-        if(distance_traveled <target_distance) //CODE COMMENT: this is a global variable but it's only used here. If we leave it as a global variable, we should set it at the top with the other global variables, but since it's only used here, to just use 0.05 and not make it a variable, or make it local.
-        {
-            linear_ = -0.1; // back up
-            angular_ = 0.0;
-            RCLCPP_INFO(this -> get_logger(),"Backing up (beep!), distance traveled: %.2f", distance_traveled);
-        }
-        else {
-            RCLCPP_INFO(this -> get_logger(),"Finished backing up, distance traveled: %.2f", distance_traveled);
-            state_ = 1; // CODE COMMENT: this variable is always 0 because moveBack is always called with 0 as an argument. This won't update the value. We can make a global variable for state if we want to keep track of it across function calls.
-            linear_ = 0.0;
-            angular_ = 0.0;
-        }
-
+        return false;
     }
+
+    // functions that are called in the control loop to perform specific calculations (e.g. normalize angle, create filtered laser range array, set current positions for bumper handling routine)
 
     double normalizeAngle(double angle)   
     {
@@ -357,85 +499,12 @@ private:
 
     void setCurrentPositions()
     {
-        // CODE COMMENT: NOT USED RIGHT NOW - MAY BE USEFUL FOR BUMPER HANDLING
         // Set current positions and yaw for bumper handling routine
-        currentX = pos_x_;
-        currentY = pos_y_;
-        currentYaw = yaw_;
+        start_pos_x_ = pos_x_;
+        start_pos_y_ = pos_y_;
+        start_yaw_ = yaw_;
     }
-
-    void randomSearchAlgorithm() 
-    {
-        // Implement a random search algorithm for exploration
-        static std::default_random_engine generator;
-        static std::uniform_real_distribution<double> distribution(-M_PI, M_PI);
-
-        // Generate a random number
-        double random_angle = distribution(generator);
-        RCLCPP_INFO(this->get_logger(), "Randomly turning to angle: %f radians", random_angle);
-        
-        static bool RandomTurn = false; // CODE COMMENT: this variable is always false because it's defined in the function. If we want to keep track of it across function calls, we should make it a global variable.
-        static double target_yaw = 0.0; // CODE COMMENT: this variable is always 0 because it's defined in the function. If we want to keep track of it across function calls, we should make it a global variable.
-        
-        if (front_distance <= 0.5 && !RandomTurn) {
-            linear_ = -0.1; // back up if too close to obstacle // CODE COMMENT: this is overwritten in the next iterations a few miliseconds later, so might as well be 0
-            angular_ = 0.0;
-            RandomTurn = true;
-            
-        }else {
-            linear_ = 0.2;
-            angular_ = 0.0;
-        }
-
-        if (!RandomTurn) {
-            target_yaw = normalizeAngle(currentYaw  + random_angle);
-        }else{
-            angular_ = (normalizeAngle(target_yaw - currentYaw) > 0) ? 0.2 : -0.2; // Set angular velocity to turn towards the target yaw
-            linear_ = 0.0;
-
-            if (abs(normalizeAngle(target_yaw - currentYaw)) < 0.1) {
-                angular_ = 0.0;
-                RandomTurn = false;
-            }
-        }
-
-    }
-
-    bool isStuck()
-    {
-        if (!stuck_timer_active_) 
-        {
-            stuck_start_time_ = this->now();
-            stuck_start_x_ = pos_x_;
-            stuck_start_y_ = pos_y_;
-            stuck_start_yaw_ = yaw_;
-            stuck_timer_active_ = true;
-            return false;
-        }
-
-        double dist = std::hypot(pos_x_ - stuck_start_x_, pos_y_ - stuck_start_y_);
-        double yaw_change = std::abs(normalizeAngle(yaw_ - stuck_start_yaw_));
-        double time_elapsed = (this->now() - stuck_start_time_).seconds();
-
-        // Reset timer if robot is clearly moving forward
-        if (dist > STUCK_DISTANCE_THRESH) 
-        {
-            stuck_timer_active_ = false;
-            return false;
-        }
-
-        // If turning in place for too long → stuck
-        if (yaw_change > STUCK_YAW_THRESH && time_elapsed > STUCK_TIME_THRESH) {
-            RCLCPP_WARN(this->get_logger(),
-                "Robot appears stuck (%.2fm moved, %.1f deg turned over %.1fs)",
-                dist, rad2deg(yaw_change), time_elapsed);
-            stuck_timer_active_ = false;
-            return true;
-        }
-
-        return false;
-    }
-
+    
     #pragma endregion Utilities
 
     void controlLoop()
@@ -466,8 +535,6 @@ private:
         // Our exploration code below this point ////////////////////////////////////////////////////////////////////////////////////////////////////////
         
         // SET UP VARIABLES AND CONDITIONS //
-        // Define filteredLaserRange array with values from laserRange_ above 20cm
-        createLasersArray(); 
 
         // check if robot is stuck, and if yes, call isStuck and reset handling so that robot goes back to startup routine
         if (isStuck()) 
@@ -477,48 +544,21 @@ private:
             callstartupRoutine = true;
             isTurning = false;
             enterBumperHandling = false;
-
-            filteredLaserRange_.clear();
         }
-        //set start x and y position equal to 0
-        start_pos_x = 0.0;
-        start_pos_y_ = 0.0;
-        target_distance = 0.05; // set target distance to move back when bumper is pressed
 
         // Check if any bumper is pressed
-        anyBumperPressed = isBumpersPressed();
+        anyBumperPressed = isBumpersPressed(); // checks if any bumper has been pressed (updated every iteration) - if yes, saves which specific bumper was pressed in pressed_bumper variable
 
         // Set up conditional handling for bumper pressed or startup
         if (anyBumperPressed) // if true, set flag to enter bumper handling routine and define current positions
         {
-            enterBumperHandling = true;   
-            setCurrentPositions();
-        }
-        // CODE COMMENT: this logic should be implemented somewhere else in the code. The linear and angular velocities will be overwritten before they are published. 
-        //GOOD CATCH. the intention here is to have a check that the robot isn't too close to anything before it starts moving (since we were having issues with this not being checked)
-        //any suggestions on where/how to fix this? a boolean called tooClose that avoids the remaining logic triggering/re-publishing velocity commands if the robot is too close to an obstacle? 
-        else if (min_element(filteredLaserRange_.begin(), filteredLaserRange_.end()) >= minLaserDist_) //checks to see where the closest obstacle is located, and orients the robot away from it if within a certain distance threshold
-        {
-            obstacle_idx_ = min_element(filteredLaserRange_.begin(), filteredLaserRange_.end()) - filteredLaserRange_.begin();
-            if(obstacle_idx_ < front_idx_ )
-            {
-                angular_=-0.2; //turn to the left because the obstacle is on the right
-                linear_ = 0.0;
-            }
-            else if (obstacle_idx_ > front_idx_)
-            {
-                angular_= 0.2; //turn to the right because the obstacle is on the left
-                linear_ = 0.0;
-            }
-            else if (obstacle_idx_ == front_idx_)
-            {
-                angular_ = 0.0;
-                linear_ = -0.1; //back up if the obstacle is directly in front
-            }
-            
+            enterBumperHandling = true; // set flag to enter bumper handling routine (true until bumper handling is complete)   
+            backup = true; // set flag to enter backup routine within bumper handling
+            setCurrentPositions(); // saves the yaw and position of the robot at the moment the bumper was pressed
         }
         else if (startup) // if true (first loop), set initial goal yaw and define current positions and set to false
-        {            
+        {       
+            if (filteredLaserRange_.empty()) {return; }     
             // Find index of maximum distance from filtered laser ranges
             max_element = *std::max_element(begin(filteredLaserRange_), end(filteredLaserRange_)); // find maximum distance from filtered laser ranges
             max_element_idx = std::distance(filteredLaserRange_.begin(), std::max_element(filteredLaserRange_.begin(), filteredLaserRange_.end())); // find index of maximum distance
@@ -526,12 +566,14 @@ private:
             // Determine turn direction based on index of maximum distance
             turnClockwise = max_element_idx < (filteredLaserRange_.size() / 2); // true = turn right, false = turn left
             startup = false;
+            callstartupRoutine = true; // set flag to call startup routine in control loop
         }
-
+        
         // ENTER ROUTINE BASED ON CONDITIONS //
         if (enterBumperHandling)  { bumperPressedHandling(); } // handle bumper pressed event
+        else if (tooCloseToObstacle()) { obstacleAvoidance(); } // handle obstacle avoidance if robot is too close to an obstacle //CODE COMMENT: i moved the code from the earlier statements here (split between tooCloseToObstacle() - which includes the checks - and obstacleAvoidance() - which includes the linear_ and angular_ instructions) to make it more organized and clear
         else if (callstartupRoutine) { startupRoutine(); } // perform startup routine (orient robot to face furthest wall & approach)
-        else if (seconds_elasped > 360) { randomSearchAlgorithm(); } // perform random search algorithm after 6 minutes have elapsed
+        else if (seconds_elapsed > 360) { randomRoutine(); } // perform random search algorithm after 6 minutes have elapsed
         else { wallFollowingRoutine(); } // perform wall following routine
 
         // SET AND PUBLISH VELOCITY COMMAND //
@@ -565,6 +607,7 @@ private:
     std::map<std::string, bool> bumpers_;
 
     float minLaserDist_;
+    int minLaserDist_idx_;
     int32_t nLasers_;
     int32_t desiredNLasers_;
     int32_t desiredAngle_;
@@ -576,13 +619,12 @@ private:
 
     bool enterBumperHandling;
     bool anyBumperPressed;
+    bool backup; // boolean to indicate whether robot should be in backup routine within bumper handling
 
     bool isTurning;
-    float minimumFrontDistance;
+    float minimumObstacleDistance;
+    float minimumFrontDistance_;
 
-    float currentYaw;
-    float currentX;
-    float currentY;
     float max_element;
     int max_element_idx;
     bool turnClockwise;
@@ -591,12 +633,23 @@ private:
     float right_distance_;
     float left_distance_;
     float back_distance_; 
+    int front_idx_;
+    int back_idx_;
+    int right_idx_;
+    int left_idx_;
 
     float obstacle_idx_;
-    float start_pos_x;
+    bool obstacle_on_right_;
+    bool obstacle_on_left_;
+
+    float target_yaw; // used in random routine to set a random target yaw to turn towards when the robot is too close to an obstacle
+    bool randomTurn; // boolean to indicate whether robot should be in random turn routine
+
+
+    float start_pos_x_;
     float start_pos_y_;
+    float start_yaw_;
     float distance_traveled;
-    float target_distance; // distance to move back when bumper is pressed
     std::string pressed_bumper;
 
     // Stuck detection

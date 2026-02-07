@@ -78,14 +78,18 @@ public:
         start_pos_x_ = 0.0; // set to current X position when setPositions() is called - used for some handler routines (e.g. startup routine)
         start_pos_y_ = 0.0; // set to current Y position when setPositions() is called - used for some handler routines (e.g. startup routine)
         anyBumperPressed = false; //boolean to indicate whether any bumper is pressed
-        front_distance_ = std::numeric_limits<float>::infinity(); //initiaze front distance to infinity, all other measurements will be smaller
         right_distance_ = std::numeric_limits<float>::infinity(); //initiaze right distance to infinity, all other measurements will be smaller
+        rightFront_distance_ = std::numeric_limites<float>::infinity(); //initialize right front distance to infinity, all other measurements will be smaller
+        front_distance_ = std::numeric_limits<float>::infinity(); //initiaze front distance to infinity, all other measurements will be smaller
+        leftFront_distance_ = ste::numeric_limites<float>::infinity(); //inistialize left front distance to infinity, all other measurements will be smaller
         left_distance_ = std::numeric_limits<float>::infinity(); //initiaze left distance to infinity, all other measurements will be smaller
         back_distance_ = std::numeric_limits<float>::infinity();// initiaze back distance to infinity, all other measurements will be smaller
-        front_idx_ = 0; //find index of front obstacle distance measurement
-        back_idx_ = 0; //find index of back obstacle distance measurement
-        left_idx_ = 0; //find index of left obstacle distance measurement
-        right_idx_ = 0; //find index of right obstacle distance measurement
+        front_idx_ = 0; //default index of front laser distance measurement
+        back_idx_ = 0; //default index of back laser distance measurement
+        left_idx_ = 0; //default index of left laser distance measurement
+        right_idx_ = 0; //default index of right laser distance measurement
+        rightFront_idx_ = 0; //default index of right front laser
+        leftFront_idx_ = 0; //default index of left front laser
 
         target_yaw = 0.0; // initialize target yaw for random routine
         randomTurn = false; // initialize randomTurn boolean for random routine
@@ -118,11 +122,12 @@ private:
         uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;   
         */
 
-        front_idx_ = nLasers_ / 4; //find index of front obstacle distance measurement
-        back_idx_ = nLasers_ * 3/4 ; //find index of back obstacle distance measurement
-        left_idx_ = nLasers_ / 2; //find index of left obstacle distance measurement
-        right_idx_ = 0; //find index of right obstacle distance measurement
-
+        right_idx_ = 0; //find index of right laser distance measurement
+        rightFront_idx_ = nLasers_ / 8; //find index of laser at 45 degrees right of front
+        front_idx_ = nLasers_ / 4; //find index of front laser distance measurement
+        leftFront_idx_ = nLasers_ * 3/8; // find index of laser at 45 degrees left of front
+        left_idx_ = nLasers_ / 2; //find index of left laser distance measurement
+        back_idx_ = nLasers_ * 3/4 ; //find index of back laser distance measurement
 
         minLaserDist_ = std::numeric_limits<float>::infinity(); //find the closest obstacle to the current position of the robot FROM front_idx_ - desiredNLasers_ to front_idx_ + desiredNLasers_ (NOT FULL SCAN AROUND ROBOT) 
         if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) { 
@@ -137,8 +142,10 @@ private:
             }
         }
 
-        front_distance_ = laserRange_[front_idx_];  //extract distance of obstacle in front of robot
         right_distance_ = laserRange_[right_idx_];  //extract distance of obstacle to right of robot
+        rightFront_distance_ = laserRange[rightFront_idx_]; //extract distance of obstacle 45 degrees between right and front
+        front_distance_ = laserRange_[front_idx_];  //extract distance of obstacle in front of robot
+        leftFront_distance_ = laserRange[leftFront_idx_]; //extract distance of obstacle 45 between left and front
         left_distance_ = laserRange_[left_idx_];  //extract distance of obstacle to left of robot
         back_distance_ = laserRange_[back_idx_]; //extract distance of obstacle behind robot
 
@@ -218,20 +225,64 @@ private:
         /* Wall following routine to follow the right wall at a set distance */
         RCLCPP_INFO(this -> get_logger(),"front_distance: %.2f , left_distance: %.2f, right_distance: %.2f", front_distance_, left_distance_, right_distance_);
 
-        // Determine if robot is close to an obstacle in front and needs to turn
-        bool _turnClockwise = false; // true = turn right, false = turn left
-        if (front_distance_ <= 0.5 && !isTurning)
+        if (front_distance_ < minimumObstacleDistance) // if obstacle in front is too close, turn away from it
         {
-            if (left_distance_ <= 0.5 && right_distance_ > 0.01) { _turnClockwise = true; } // turn right if left wall is also close
-            isTurning = true;
+            RCLCPP_INFO(this->get_logger(), "Obstacle in front detected within %.2f meters, turning away", minimumObstacleDistance);
+            angular_ = -0.1; // turn right if obstacle in front is too close
         }
+        else if (rightFront_distance_ < minimumObstacleDistance || right_distance_ < minimumObstacleDistance) // if obstacle on right is too close, turn away from it
+        {
+            RCLCPP_INFO(this->get_logger(), "Obstacle on right detected within %.2f meters, turning away", minimumObstacleDistance);
+            angular_ = 0.1; // turn left if obstacle on right is too close
+        }
+        else if (leftFront_distance_ < minimumObstacleDistance || left_distance_ < minimumObstacleDistance) // if obstacle on left is too close, turn away from it
+        {
+            RCLCPP_INFO(this->get_logger(), "Obstacle on left detected within %.2f meters, turning away", minimumObstacleDistance);
+            angular_ = -0.1; // turn right if obstacle on left is too close
+        }
+        else // no obstacles are too close, continue wall following routine
+        {
+            // Implement wall following behavior (e.g. maintain a certain distance from the wall on the right)
+            if (right_distance_ > 0.5) // if there is no wall or an obstacle is far on the right, turn right to find the wall
+            {
+                RCLCPP_INFO(this->get_logger(), "No wall detected on the right within 0.5 meters, turning right to find wall");
+                angular_ = -0.1; // turn right to find the wall
+            }
+            else // if there is a wall at a reasonable distance on the right, follow it by moving forward and making small adjustments to maintain distance
+            {
+                RCLCPP_INFO(this->get_logger(), "Following wall on the right");
+                linear_ = 0.2; // move forward
+
+                // make small adjustments to maintain distance from the wall
+                if (right_distance_ < 0.3 || rightFront_distance_ < 0.3) // if too close to the wall, adjust by turning left slightly
+                {
+                    angular_ = 0.1; // adjust left
+                }
+                else if (right_distance_ > 0.4 || rightFront_distance_ > 0.4) // if too far from the wall, adjust by turning right slightly
+                {
+                    angular_ = -0.1; // adjust right
+                }
+                else // if at a good distance from the wall, keep moving forward
+                {
+                    angular_ = 0.0; // no adjustment needed
+                }
+            }
+        }
+
+        /*// // Determine if robot is close to an obstacle in front and needs to turn
+        // bool _turnClockwise = false; // true = turn right, false = turn left
+        // if (front_distance_ <= 0.5 && !isTurning)
+        // {
+        //     if (left_distance_ <= 0.5 && right_distance_ > 0.01) { _turnClockwise = true; } // turn right if left wall is also close
+        //     isTurning = true;
+        // }
         
-        if (!isTurning) // robot is clear ahead
-        {
-            linear_ = 0.2;
-            angular_ = 0.0;
-        }
-        else { turnRobot(_turnClockwise); } // robot is turning
+        // if (!isTurning) // robot is clear ahead
+        // {
+        //     linear_ = 0.2;
+        //     angular_ = 0.0;
+        // }
+        // else { turnRobot(_turnClockwise); } // robot is turning*/
 
         return; 
     }
@@ -278,32 +329,31 @@ private:
     #pragma region Utilities
 
     // functions that are called in the routines to perform specific tasks (e.g. turning robot, handling bumper)
-   
 
-    void turnRobot(bool _turnClockwise)
-    {
-        // Turn robot in specified direction until min side laser distance matches min laser distance from filteredLaserRange_
-        RCLCPP_INFO(this->get_logger(), "Turning robot %s", _turnClockwise ? "clockwise" : "counter-clockwise");
+    /*// void turnRobot(bool _turnClockwise)
+    // {
+    //     // Turn robot in specified direction until min side laser distance matches min laser distance from filteredLaserRange_
+    //     RCLCPP_INFO(this->get_logger(), "Turning robot %s", _turnClockwise ? "clockwise" : "counter-clockwise");
 
-        // Find minimum distance from filtered laser ranges
-        float min_element = *std::min_element(begin(filteredLaserRange_), end(filteredLaserRange_)); // find minimum distance from filtered laser ranges
-        float distanceDifference = _turnClockwise ? abs(left_distance_ - min_element) : abs(right_distance_ - min_element); // calculate distance difference based on turn direction
+    //     // Find minimum distance from filtered laser ranges
+    //     float min_element = *std::min_element(begin(filteredLaserRange_), end(filteredLaserRange_)); // find minimum distance from filtered laser ranges
+    //     float distanceDifference = _turnClockwise ? abs(left_distance_ - min_element) : abs(right_distance_ - min_element); // calculate distance difference based on turn direction
 
-        if (distanceDifference > 0.01)  // if not yet reached target rotation
-        { 
-            linear_ = 0.0;
-            angular_ = _turnClockwise ? -0.1 : 0.1; // turn in specified direction
-        }
-        else // reached target rotation
-        {
-            RCLCPP_INFO(this->get_logger(), "Reached 90 degrees, moving to final stop"); 
-            linear_ = 0.2;
-            angular_ = 0.0; 
-            isTurning = false;
-        }
+    //     if (distanceDifference > 0.01)  // if not yet reached target rotation
+    //     { 
+    //         linear_ = 0.0;
+    //         angular_ = _turnClockwise ? -0.1 : 0.1; // turn in specified direction
+    //     }
+    //     else // reached target rotation
+    //     {
+    //         RCLCPP_INFO(this->get_logger(), "Reached 90 degrees, moving to final stop"); 
+    //         linear_ = 0.2;
+    //         angular_ = 0.0; 
+    //         isTurning = false;
+    //     }
 
-        return;
-    }
+    //     return;
+    // }*/
 
     void bumperPressedHandling() 
     {
@@ -372,27 +422,27 @@ private:
         }
     }
 
-    void obstacleAvoidance()
-    {
-        // adding obstacle avoidance function to be called in the control loop
-        //     If the robot is within a certain distance threshold of an obstacle, it will turn away from the obstacle until it is not longer within the distance threshold.
-        //     what we know - the robot is too close to an obstacle if minLaserDist_ is less than minimumObstacleDistance
-        //     what we want to do - if the robot is too close to an obstacle, we want it to turn away from the obstacle until it is no longer too close (using is_obstacle_on_right/left bools to choose direction).
-        //     NOTE: i removed logic for front distance becauce that handling is included in wall following routine.
+    /*// void obstacleAvoidance()
+    // {
+    //     // adding obstacle avoidance function to be called in the control loop
+    //     //     If the robot is within a certain distance threshold of an obstacle, it will turn away from the obstacle until it is not longer within the distance threshold.
+    //     //     what we know - the robot is too close to an obstacle if minLaserDist_ is less than minimumObstacleDistance
+    //     //     what we want to do - if the robot is too close to an obstacle, we want it to turn away from the obstacle until it is no longer too close (using is_obstacle_on_right/left bools to choose direction).
+    //     //     NOTE: i removed logic for front distance becauce that handling is included in wall following routine.
 
-        if (obstacle_on_right_) 
-        {
-            RCLCPP_INFO(this->get_logger(), "Obstacle on the right, turning left");
-            linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the right, since we were having some issues with that.
-            angular_ = 0.2; // turn left
-        }
-        else if (obstacle_on_left_)
-        {
-            RCLCPP_INFO(this->get_logger(), "Obstacle on the left, turning right");
-            linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the left, since we were having some issues with that.
-            angular_ = -0.2; // turn right
-        }
-    }
+    //     if (obstacle_on_right_) 
+    //     {
+    //         RCLCPP_INFO(this->get_logger(), "Obstacle on the right, turning left");
+    //         linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the right, since we were having some issues with that.
+    //         angular_ = 0.2; // turn left
+    //     }
+    //     else if (obstacle_on_left_)
+    //     {
+    //         RCLCPP_INFO(this->get_logger(), "Obstacle on the left, turning right");
+    //         linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the left, since we were having some issues with that.
+    //         angular_ = -0.2; // turn right
+    //     }
+    // }*/
 
     // functions that are called in the control loop to check conditions and set flags for which routine to enter (e.g. check if any bumper is pressed, check if robot is stuck, check if robot is too close to an obstacle)
 
@@ -450,27 +500,27 @@ private:
         return false;
     }
 
-    bool tooCloseToObstacle()
-    {
-        // check through idices in the front half of the laser range data (90 degrees on either side of the front center laser measurement)
+    /*// bool tooCloseToObstacle()
+    // {
+    //     // check through idices in the front half of the laser range data (90 degrees on either side of the front center laser measurement)
 
-        if (minLaserDist_ < minimumObstacleDistance) 
-        {
-            RCLCPP_WARN(this->get_logger(), "Too close to obstacle! Executing avoidance maneuver.");
-            if (obstacle_idx_ < front_idx_) // obstacle is on the right
-            {
-                obstacle_on_right_ = true;
-                obstacle_on_left_ = false;
-            }
-            else if (obstacle_idx_ > front_idx_) // obstacle is on the left
-            {
-                obstacle_on_right_ = false;
-                obstacle_on_left_ = true;
-            }
-            return true;
-        }
-        return false;
-    }
+    //     if (minLaserDist_ < minimumObstacleDistance) 
+    //     {
+    //         RCLCPP_WARN(this->get_logger(), "Too close to obstacle! Executing avoidance maneuver.");
+    //         if (obstacle_idx_ < front_idx_) // obstacle is on the right
+    //         {
+    //             obstacle_on_right_ = true;
+    //             obstacle_on_left_ = false;
+    //         }
+    //         else if (obstacle_idx_ > front_idx_) // obstacle is on the left
+    //         {
+    //             obstacle_on_right_ = false;
+    //             obstacle_on_left_ = true;
+    //         }
+    //         return true;
+    //     }
+    //     return false;
+    // }*/
 
     // functions that are called in the control loop to perform specific calculations (e.g. normalize angle, create filtered laser range array, set current positions for bumper handling routine)
 
@@ -570,7 +620,7 @@ private:
         
         // ENTER ROUTINE BASED ON CONDITIONS //
         if (enterBumperHandling)  { bumperPressedHandling(); } // handle bumper pressed event
-        else if (tooCloseToObstacle()) { obstacleAvoidance(); } // handle obstacle avoidance if robot is too close to an obstacle //CODE COMMENT: i moved the code from the earlier statements here (split between tooCloseToObstacle() - which includes the checks - and obstacleAvoidance() - which includes the linear_ and angular_ instructions) to make it more organized and clear
+        //else if (tooCloseToObstacle()) { obstacleAvoidance(); } // handle obstacle avoidance if robot is too close to an obstacle //CODE COMMENT: i moved the code from the earlier statements here (split between tooCloseToObstacle() - which includes the checks - and obstacleAvoidance() - which includes the linear_ and angular_ instructions) to make it more organized and clear
         else if (callstartupRoutine) { startupRoutine(); } // perform startup routine (orient robot to face furthest wall & approach)
         else if (seconds_elapsed > 360) { randomRoutine(); } // perform random search algorithm after 6 minutes have elapsed
         else { wallFollowingRoutine(); } // perform wall following routine
@@ -628,14 +678,20 @@ private:
     int max_element_idx;
     bool turnClockwise;
 
-    float front_distance_;
     float right_distance_;
+    float rightFront_distance_;
+    float front_distance_;
+    float leftFront_distance_;
     float left_distance_;
     float back_distance_; 
-    int front_idx_;
-    int back_idx_;
+
     int right_idx_;
+    int rightFront_idx_;
+    int front_idx_;
+    int leftFront_idx_;
     int left_idx_;
+    int back_idx_;
+    
 
     float obstacle_idx_;
     bool obstacle_on_right_;
