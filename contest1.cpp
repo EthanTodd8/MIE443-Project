@@ -82,11 +82,16 @@ public:
         right_distance_ = std::numeric_limits<float>::infinity(); //initiaze right distance to infinity, all other measurements will be smaller
         left_distance_ = std::numeric_limits<float>::infinity(); //initiaze left distance to infinity, all other measurements will be smaller
         back_distance_ = std::numeric_limits<float>::infinity();// initiaze back distance to infinity, all other measurements will be smaller
+        front_idx_ = 0; //find index of front obstacle distance measurement
+        back_idx_ = 0; //find index of back obstacle distance measurement
+        left_idx_ = 0; //find index of left obstacle distance measurement
+        right_idx_ = 0; //find index of right obstacle distance measurement
+
         target_yaw = 0.0; // initialize target yaw for random routine
         randomTurn = false; // initialize randomTurn boolean for random routine
 
         // Initialize bumper states to false 
-        bumpers_["bump_from_left"] = false;
+        bumpers_["bump_front_left"] = false;
         bumpers_["bump_front_center"] = false;
         bumpers_["bump_front_right"] = false;
         bumpers_["bump_left"] = false;
@@ -113,10 +118,11 @@ private:
         uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;   
         */
 
-        int front_idx_ = nLasers_ / 4; //find index of front obstacle distance measurement
-        int back_idx_ = nLasers_ * 3/4 ; //find index of back obstacle distance measurement
-        int left_idx_ = nLasers_ / 2; //find index of left obstacle distance measurement
-        int right_idx_ = 0; //find index of right obstacle distance measurement
+        front_idx_ = nLasers_ / 4; //find index of front obstacle distance measurement
+        back_idx_ = nLasers_ * 3/4 ; //find index of back obstacle distance measurement
+        left_idx_ = nLasers_ / 2; //find index of left obstacle distance measurement
+        right_idx_ = 0; //find index of right obstacle distance measurement
+
 
         minLaserDist_ = std::numeric_limits<float>::infinity(); //find the closest obstacle to the current position of the robot FROM front_idx_ - desiredNLasers_ to front_idx_ + desiredNLasers_ (NOT FULL SCAN AROUND ROBOT) 
         if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) { 
@@ -135,6 +141,8 @@ private:
         right_distance_ = laserRange_[right_idx_];  //extract distance of obstacle to right of robot
         left_distance_ = laserRange_[left_idx_];  //extract distance of obstacle to left of robot
         back_distance_ = laserRange_[back_idx_]; //extract distance of obstacle behind robot
+
+        createLasersArray(); // Define filteredLaserRange array with values from laserRange_ above 20cm
 
         RCLCPP_INFO(this->get_logger(), "front_distance_: %f, right_distance_: %f, left_distance: %f, back_distance: %f" , front_distance_, right_distance_, left_distance_, back_distance_);
     }
@@ -224,7 +232,7 @@ private:
             angular_ = 0.0;
         }
         else { turnRobot(_turnClockwise); } // robot is turning
-            
+
         return; 
     }
 
@@ -235,8 +243,7 @@ private:
         // if yes, set random target angle, and turn towards until reached
         // if no, move forward
         
-        // Generate a random number
-        RCLCPP_INFO(this->get_logger(), "Randomly turning to angle: %f radians", random_angle);
+        //RCLCPP_INFO(this->get_logger(), "Randomly turning to angle: %f radians", random_angle);
 
         if (front_distance_ > 0.5 && !randomTurn) 
         {
@@ -271,6 +278,7 @@ private:
     #pragma region Utilities
 
     // functions that are called in the routines to perform specific tasks (e.g. turning robot, handling bumper)
+   
 
     void turnRobot(bool _turnClockwise)
     {
@@ -284,7 +292,7 @@ private:
         if (distanceDifference > 0.01)  // if not yet reached target rotation
         { 
             linear_ = 0.0;
-            angular_ = _turnClockwise ? 0.1 : -0.1; // turn in specified direction
+            angular_ = _turnClockwise ? -0.1 : 0.1; // turn in specified direction
         }
         else // reached target rotation
         {
@@ -312,16 +320,18 @@ private:
         if (backup)
         {
             moveBack();
+            RCLCPP_INFO(this -> get_logger(),"backup...");
         }
-        else if (abs(yaw_ - start_yaw_) > deg2rad(45)) // Turn the robot 45 degrees away from obstacle
+        else if (abs(yaw_ - start_yaw_) < deg2rad(90)) // Turn the robot 45 degrees away from obstacle
         {
-            if(pressed_bumper == "bump_from_left" || pressed_bumper == "bump_left" || pressed_bumper == "bump_front_center")
+            //RCLCPP_INFO(this -> get_logger(),"yaw_ = %f, start_yaw_ = %f", yaw_, start_yaw_);
+            if(pressed_bumper == "bump_front_left" || pressed_bumper == "bump_left" || pressed_bumper == "bump_front_center")
             {
                 RCLCPP_INFO(this -> get_logger(),"Left side or front bumper was pressed - turn right");
                 linear_ = 0.0;
                 angular_ = -0.2; // turn right
             }
-            else // if (pressed_bumper == "bump_right" or "bumper_front_right") (only remaining options)
+            else // if (pressed_bumper == "bump_right" or "bump_front_right") (only remaining options)
             {
                 RCLCPP_INFO(this -> get_logger(),"Right side bumper was pressed - turn left");
                 linear_ = 0.0;
@@ -330,6 +340,7 @@ private:
         }
         else // if robot has turned 45 degrees away from obstacle, exit bumper handling routine and return to startup/wall following routine
         {
+            RCLCPP_INFO(this -> get_logger(),"yaw_ = %f, start_yaw_ = %f", yaw_, start_yaw_);
             RCLCPP_INFO(this -> get_logger(),"Finished turning, exiting bumper handling routine");
             enterBumperHandling = false; // exit bumper handling routine
         }
@@ -408,7 +419,7 @@ private:
     {
         if (!stuck_timer_active_) 
         {
-            stuck_start_time_ = this->now();
+            stuck_start_time = this->now();
             stuck_start_x_ = pos_x_;
             stuck_start_y_ = pos_y_;
             stuck_start_yaw_ = yaw_;
@@ -418,7 +429,7 @@ private:
 
         double dist = std::hypot(pos_x_ - stuck_start_x_, pos_y_ - stuck_start_y_);
         double yaw_change = std::abs(normalizeAngle(yaw_ - stuck_start_yaw_));
-        double time_elapsed = (this->now() - stuck_start_time_).seconds();
+        double time_elapsed = (this->now() - stuck_start_time).seconds();
 
         // Reset timer if robot is clearly moving forward
         if (dist > STUCK_DISTANCE_THRESH) 
@@ -523,18 +534,16 @@ private:
         // Our exploration code below this point ////////////////////////////////////////////////////////////////////////////////////////////////////////
         
         // SET UP VARIABLES AND CONDITIONS //
-        // Define filteredLaserRange array with values from laserRange_ above 20cm
-        createLasersArray(); 
 
         // check if robot is stuck, and if yes, call isStuck and reset handling so that robot goes back to startup routine
-        if (isStuck()) 
-        {
-            RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
-            startup = true;
-            callstartupRoutine = true;
-            isTurning = false;
-            enterBumperHandling = false;
-        }
+        // if (isStuck()) 
+        // {
+        //     RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
+        //     startup = true;
+        //     callstartupRoutine = true;
+        //     isTurning = false;
+        //     enterBumperHandling = false;
+        // }
 
         // Check if any bumper is pressed
         anyBumperPressed = isBumpersPressed(); // checks if any bumper has been pressed (updated every iteration) - if yes, saves which specific bumper was pressed in pressed_bumper variable
@@ -547,7 +556,8 @@ private:
             setCurrentPositions(); // saves the yaw and position of the robot at the moment the bumper was pressed
         }
         else if (startup) // if true (first loop), set initial goal yaw and define current positions and set to false
-        {            
+        {       
+            if (filteredLaserRange_.empty()) {return; }     
             // Find index of maximum distance from filtered laser ranges
             max_element = *std::max_element(begin(filteredLaserRange_), end(filteredLaserRange_)); // find maximum distance from filtered laser ranges
             max_element_idx = std::distance(filteredLaserRange_.begin(), std::max_element(filteredLaserRange_.begin(), filteredLaserRange_.end())); // find index of maximum distance
@@ -562,7 +572,7 @@ private:
         if (enterBumperHandling)  { bumperPressedHandling(); } // handle bumper pressed event
         else if (tooCloseToObstacle()) { obstacleAvoidance(); } // handle obstacle avoidance if robot is too close to an obstacle //CODE COMMENT: i moved the code from the earlier statements here (split between tooCloseToObstacle() - which includes the checks - and obstacleAvoidance() - which includes the linear_ and angular_ instructions) to make it more organized and clear
         else if (callstartupRoutine) { startupRoutine(); } // perform startup routine (orient robot to face furthest wall & approach)
-        else if (seconds_elasped > 360) { randomRoutine(); } // perform random search algorithm after 6 minutes have elapsed
+        else if (seconds_elapsed > 360) { randomRoutine(); } // perform random search algorithm after 6 minutes have elapsed
         else { wallFollowingRoutine(); } // perform wall following routine
 
         // SET AND PUBLISH VELOCITY COMMAND //
@@ -622,6 +632,10 @@ private:
     float right_distance_;
     float left_distance_;
     float back_distance_; 
+    int front_idx_;
+    int back_idx_;
+    int right_idx_;
+    int left_idx_;
 
     float obstacle_idx_;
     bool obstacle_on_right_;
