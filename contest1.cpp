@@ -90,6 +90,9 @@ public:
         target_yaw = 0.0; // initialize target yaw for random routine
         randomTurn = false; // initialize randomTurn boolean for random routine
 
+        obstacle_on_right_ = false;  //initialise the obstacle boolean
+        obstacle_on_left_  = false;  //initialise the obstacle boolean
+
         // Initialize bumper states to false 
         bumpers_["bump_front_left"] = false;
         bumpers_["bump_front_center"] = false;
@@ -125,15 +128,26 @@ private:
 
 
         minLaserDist_ = std::numeric_limits<float>::infinity(); //find the closest obstacle to the current position of the robot FROM front_idx_ - desiredNLasers_ to front_idx_ + desiredNLasers_ (NOT FULL SCAN AROUND ROBOT) 
-        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) { 
-            for (uint32_t laser_idx = front_idx_ - desiredNLasers_; laser_idx < front_idx_ + desiredNLasers_; ++laser_idx) {
+        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) 
+        { 
+            for (uint32_t laser_idx = front_idx_ - desiredNLasers_; laser_idx < front_idx_ + desiredNLasers_; ++laser_idx) 
+            {
                 minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]); // find minimum laser distance within desired angle range
-                minLaserDist_idx_ = laser_idx; // index of closest obstacle within the desired angle range
+                if (laserRange_[laser_idx] == minLaserDist_)  // conditonal check, so the index only updates if the a new value is assigned in minLaserDist_
+                {
+                    minLaserDist_idx_ = laser_idx; // index of closest obstacle within the desired angle range
+                } 
             }
-        } else {
-            for (uint32_t laser_idx = 0; laser_idx < nLasers_; ++laser_idx) {
+        } 
+        else 
+        {
+            for (uint32_t laser_idx = 0; laser_idx < nLasers_; ++laser_idx) 
+            {
                 minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]); // find minimum laser distance within the full scan around the robot (if desired angle range is larger than the total scan range)
-                minLaserDist_idx_ = laser_idx; // index of closest obstacle in the full scan
+                if (laserRange_[laser_idx] == minLaserDist_)  
+                {
+                    minLaserDist_idx_ = laser_idx; // index of closest obstacle in the full scan
+                } 
             }
         }
 
@@ -372,9 +386,10 @@ private:
         }
     }
 
+    // Obstacle avoidance function to be called in the control loop - only if tooCloseToObstacle = true
+
     void obstacleAvoidance()
     {
-        // adding obstacle avoidance function to be called in the control loop
         //     If the robot is within a certain distance threshold of an obstacle, it will turn away from the obstacle until it is not longer within the distance threshold.
         //     what we know - the robot is too close to an obstacle if minLaserDist_ is less than minimumObstacleDistance
         //     what we want to do - if the robot is too close to an obstacle, we want it to turn away from the obstacle until it is no longer too close (using is_obstacle_on_right/left bools to choose direction).
@@ -383,15 +398,42 @@ private:
         if (obstacle_on_right_) 
         {
             RCLCPP_INFO(this->get_logger(), "Obstacle on the right, turning left");
-            linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the right, since we were having some issues with that.
+            linear_ = 0.05; // small forward velocity, as the robot steers away from the obstacle
             angular_ = 0.2; // turn left
         }
         else if (obstacle_on_left_)
         {
             RCLCPP_INFO(this->get_logger(), "Obstacle on the left, turning right");
-            linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the left, since we were having some issues with that.
+            linear_ = 0.05; // small forward velocity, as the robot steers away from the obstacle
             angular_ = -0.2; // turn right
         }
+    }
+
+    // tooCloseToObstacle returns a boolean - true/false upon which obstacleAvoidance function is called in control Loop
+
+    bool tooCloseToObstacle()
+    {
+        // check through indices in the front half of the laser range data (90 degrees on either side of the front center laser measurement)
+        
+        obstacle_on_right_ = false; //updates each time as the control loop runs
+        obstacle_on_left_ = false;
+
+        if (minLaserDist_ < minimumObstacleDistance) 
+        {
+            RCLCPP_WARN(this->get_logger(), "Too close to obstacle! Executing avoidance maneuver.");
+            if (minLaserDist_idx_ < front_idx_) // obstacle is on the right
+            {
+                obstacle_on_right_ = true;
+                obstacle_on_left_ = false;
+            }
+            else if (minLaserDist_idx_ > front_idx_) // obstacle is on the left
+            {
+                obstacle_on_right_ = false;
+                obstacle_on_left_ = true;
+            }
+            return true;     //tooCloseToObstacle = true
+        }
+        return false;        //tooCloseToObstacle = false
     }
 
     // functions that are called in the control loop to check conditions and set flags for which routine to enter (e.g. check if any bumper is pressed, check if robot is stuck, check if robot is too close to an obstacle)
@@ -447,28 +489,6 @@ private:
             return true;
         }
 
-        return false;
-    }
-
-    bool tooCloseToObstacle()
-    {
-        // check through idices in the front half of the laser range data (90 degrees on either side of the front center laser measurement)
-
-        if (minLaserDist_ < minimumObstacleDistance) 
-        {
-            RCLCPP_WARN(this->get_logger(), "Too close to obstacle! Executing avoidance maneuver.");
-            if (obstacle_idx_ < front_idx_) // obstacle is on the right
-            {
-                obstacle_on_right_ = true;
-                obstacle_on_left_ = false;
-            }
-            else if (obstacle_idx_ > front_idx_) // obstacle is on the left
-            {
-                obstacle_on_right_ = false;
-                obstacle_on_left_ = true;
-            }
-            return true;
-        }
         return false;
     }
 
@@ -570,7 +590,7 @@ private:
         
         // ENTER ROUTINE BASED ON CONDITIONS //
         if (enterBumperHandling)  { bumperPressedHandling(); } // handle bumper pressed event
-        else if (tooCloseToObstacle()) { obstacleAvoidance(); } // handle obstacle avoidance if robot is too close to an obstacle //CODE COMMENT: i moved the code from the earlier statements here (split between tooCloseToObstacle() - which includes the checks - and obstacleAvoidance() - which includes the linear_ and angular_ instructions) to make it more organized and clear
+        else if (tooCloseToObstacle()) { obstacleAvoidance(); } // handle obstacle avoidance onlt if robot is too close to an obstacle - tooClosetoObstacle =true//CODE COMMENT: i moved the code from the earlier statements here (split between tooCloseToObstacle() - which includes the checks - and obstacleAvoidance() - which includes the linear_ and angular_ instructions) to make it more organized and clear
         else if (callstartupRoutine) { startupRoutine(); } // perform startup routine (orient robot to face furthest wall & approach)
         else if (seconds_elapsed > 360) { randomRoutine(); } // perform random search algorithm after 6 minutes have elapsed
         else { wallFollowingRoutine(); } // perform wall following routine
