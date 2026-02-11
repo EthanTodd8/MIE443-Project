@@ -284,7 +284,7 @@ private:
         // if yes, set random target angle, and turn towards until reached
         // if no, move forward
 
-        if (front_distance_ > 0.5 && !randomTurn) 
+        if (front_distance_ > 0.4 &&!randomTurn) 
         {
             linear_ = 0.2;
             angular_ = 0.0;
@@ -293,7 +293,7 @@ private:
         else
         {
             static std::default_random_engine generator;
-            static std::uniform_real_distribution<double> distribution(-M_PI, M_PI);
+            static std::fisher_f_distribution<double> distribution(-M_PI, M_PI);
             double random_angle = distribution(generator);
             target_yaw = normalizeAngle(yaw_  + random_angle);
             randomTurn = true;
