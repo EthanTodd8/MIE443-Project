@@ -227,9 +227,10 @@ private:
 
     void wallFollowingRoutine()
     {
+        /*
         /* Wall following routine to follow the right wall at a set distance */
-        RCLCPP_INFO(this -> get_logger(),"front_distance: %.2f , left_distance: %.2f, right_distance: %.2f", front_distance_, left_distance_, right_distance_);
-
+        RCLCPP_INFO(this -> get_logger(),"WALL FOLLOW: front_distance: %.2f , left_distance: %.2f, right_distance: %.2f", front_distance_, left_distance_, right_distance_);
+        
         // Determine if robot is close to an obstacle in front and needs to turn
         bool _turnClockwise = false; // true = turn right, false = turn left
         if (front_distance_ <= 0.5 && !isTurning)
@@ -247,6 +248,7 @@ private:
         else { turnRobot(_turnClockwise); } // robot is turning
 
         return; 
+        
     }
 
     void randomRoutine()
@@ -288,6 +290,7 @@ private:
     #pragma endregion Routines
 
     #pragma region Utilities
+
 
     // functions that are called in the routines to perform specific tasks (e.g. turning robot, handling bumper)
    
@@ -454,7 +457,8 @@ private:
         }
 
         // If turning in place for too long → stuck
-        if (yaw_change > STUCK_YAW_THRESH && time_elapsed > STUCK_TIME_THRESH) {
+        if (yaw_change > STUCK_YAW_THRESH && time_elapsed > STUCK_TIME_THRESH) 
+        {
             RCLCPP_WARN(this->get_logger(),
                 "Robot appears stuck (%.2fm moved, %.1f deg turned over %.1fs)",
                 dist, rad2deg(yaw_change), time_elapsed);
@@ -462,6 +466,13 @@ private:
             return true;
         }
 
+        // If in startup routine and not moving, may be spinning in circles or oscillating 
+        if (callstartupRoutine && dist < STUCK_DISTANCE_THRESH && time_elapsed > STUCK_TIME_THRESH)
+        {
+            RCLCPP_WARN(this->get_logger(),"Robot appears stuck in startup(%.2fm moved, %.1f deg turned over %.1fs)",dist, rad2deg(yaw_change), time_elapsed);
+            stuck_timer_active_ = false;
+            return true;
+        }
         return false;
     }
 
@@ -534,14 +545,14 @@ private:
     
     #pragma endregion Utilities
 
+    #pragma region Control
+
     void controlLoop()
     {
         RCLCPP_INFO(this->get_logger(), "in control loop");
         // Calculate elapsed time
         auto current_time = this->now();
         double seconds_elapsed = (current_time - start_time_).seconds();
-
-        //RCLCPP_INFO(this -> get_logger(),"Position: (%.2f, %.2f), orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
 
         // Check if 480 seconds (8 minutes) have elapsed
         if (seconds_elapsed >= 480.0) {
@@ -592,7 +603,8 @@ private:
 
             // Determine turn direction based on index of maximum distance
             int diff = max_element_idx - front_idx_;
-            turnClockwise = (diff < 0); // true = turn right, false = turn left
+            turnClockwise = (diff > 0); // true = turn right, false = turn left
+            RCLCPP_INFO(this->get_logger(), "diff %d", diff);
             startup = false;
             callstartupRoutine = true; // set flag to call startup routine in control loop
         }
@@ -612,7 +624,7 @@ private:
         vel_pub_->publish(vel);
         return;
     }
-
+    #pragma endregion Control
 
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
@@ -691,7 +703,7 @@ private:
     // Tunables
     const double STUCK_DISTANCE_THRESH = 0.15;   // meters
     const double STUCK_YAW_THRESH = deg2rad(270); // radians
-    const double STUCK_TIME_THRESH = 30.0;        // seconds
+    const double STUCK_TIME_THRESH = 65.0;        // seconds
 
 };
 
@@ -705,3 +717,4 @@ int main(int argc, char** argv)
     rclcpp::shutdown();
     return 0;
 }
+#pragma endregion Main
