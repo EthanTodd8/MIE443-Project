@@ -70,8 +70,7 @@ public:
         nLasers_ = 0; //initilaize counter for number of laser data points
         desiredNLasers_ = 0; // part of the default code: for setting up minLaserDistance in laserCallback - sets up number of laser measurements to consider on either side of the center front laser measurement for minimum laser distance calculation (set as however many lasers are within the desiredAngle range)
         desiredAngle_ = 90; // CHANGED FROM 5 TO 90- defines the angle range on either side of the front center laser measurement to consider for minimum laser distance calculation (returns the min laser distance in this range) - set to 90 degrees by default so that we consider the full front half of the robot for minimum laser distance calculation
-        minimumFrontDistance_ = 0.5; // minimum distance the robot can have to an obstacle in front before it is considered too close and needs to turn away
-        minimumObstacleDistance = 0.4; //minimum distance the robot can have to an obstacle in any direction before it is considered too close and needs to turn away
+        minimumObstacleDistance = 0.5; //minimum distance the robot can have to an obstacle in any direction before it is considered too close and needs to turn away
         isTurning = false; //boolean to indicate whether the robot is currently turning
         enterBumperHandling = false; //boolean to indicate whether robot should enter bumper handling routine
         backup = false; // boolean to indicate whether robot should be in backup routine within bumper handling
@@ -87,6 +86,9 @@ public:
         back_idx_ = 0; //find index of back obstacle distance measurement
         left_idx_ = 0; //find index of left obstacle distance measurement
         right_idx_ = 0; //find index of right obstacle distance measurement
+        obstacle_on_right_ = false;
+        obstacle_on_left_ = false;
+        obstacle_is_front_ = false;
 
         target_yaw = 0.0; // initialize target yaw for random routine
         randomTurn = false; // initialize randomTurn boolean for random routine
@@ -107,7 +109,7 @@ private:
     void laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan)
     {
         // implement your code here
-        nLasers_ = (scan->angle_max - scan-> angle_min) / scan->angle_increment;
+        nLasers_ = (scan->angle_max - scan-> angle_min) / scan->angle_increment; // could be redefined as nLasers_ = scan->ranges.size();
         laserRange_ = scan->ranges;
         desiredNLasers_ = deg2rad(desiredAngle_) / scan->angle_increment; // number of lasers to consider on each side
         //RCLCPP_INFO(this->get_logger(), "Size of laser scan array: %d, and size of offset: %d", nLasers_, desiredNLasers_);
@@ -126,22 +128,32 @@ private:
 
 
         minLaserDist_ = std::numeric_limits<float>::infinity(); //find the closest obstacle to the current position of the robot FROM front_idx_ - desiredNLasers_ to front_idx_ + desiredNLasers_ (NOT FULL SCAN AROUND ROBOT) 
-        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) { 
-            for (uint32_t laser_idx = front_idx_ - desiredNLasers_; laser_idx < front_idx_ + desiredNLasers_; ++laser_idx) {
-                minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]); // find minimum laser distance within desired angle range
-                minLaserDist_idx_ = laser_idx; // index of closest obstacle within the desired angle range
+        if (deg2rad(desiredAngle_) < scan->angle_max &&deg2rad(desiredAngle_) > scan->angle_min) 
+        { 
+            int start = std::max(0, front_idx_ - desiredNLasers_);
+            int end   = std::min((int)laserRange_.size() - 1, front_idx_ + desiredNLasers_);
+            for (int i = start; i <= end; ++i) 
+            {
+                if (laserRange_[i] > 0.2) // only consider laser measurements above 20cm for minimum distance calculation (to avoid considering invalid measurements that are too close to the robot)
+                {
+                    minLaserDist_ = std::min(minLaserDist_, laserRange_[i]); // find minimum laser distance within desired angle range
+                    minLaserDist_idx_ = i; // index of closest obstacle within the desired angle range        
+                }
             }
-        } else {
+        } 
+        else {
             for (uint32_t laser_idx = 0; laser_idx < nLasers_; ++laser_idx) {
                 minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]); // find minimum laser distance within the full scan around the robot (if desired angle range is larger than the total scan range)
                 minLaserDist_idx_ = laser_idx; // index of closest obstacle in the full scan
             }
         }
+    
+        auto safe = [](float r) { return std::isfinite(r) ? r : std::numeric_limits<float>::infinity(); };
 
-        front_distance_ = laserRange_[front_idx_];  //extract distance of obstacle in front of robot
-        right_distance_ = laserRange_[right_idx_];  //extract distance of obstacle to right of robot
-        left_distance_ = laserRange_[left_idx_];  //extract distance of obstacle to left of robot
-        back_distance_ = laserRange_[back_idx_]; //extract distance of obstacle behind robot
+        front_distance_ = safe(laserRange_[front_idx_]);  //extract distance of obstacle in front of robot
+        right_distance_ = safe(laserRange_[right_idx_]);  //extract distance of obstacle to right of robot
+        left_distance_ = safe(laserRange_[left_idx_]);  //extract distance of obstacle to left of robot
+        back_distance_ = safe(laserRange_[back_idx_]); //extract distance of obstacle behind robot
 
         createLasersArray(); // Define filteredLaserRange array with values from laserRange_ above 20cm
 
@@ -373,18 +385,21 @@ private:
         //     what we know - the robot is too close to an obstacle if minLaserDist_ is less than minimumObstacleDistance
         //     what we want to do - if the robot is too close to an obstacle, we want it to turn away from the obstacle until it is no longer too close (using is_obstacle_on_right/left bools to choose direction).
         //     NOTE: i removed logic for front distance becauce that handling is included in wall following routine.
+        double turn_gain = obstacle_is_front_ ? 0.6 : 0.3;
+        double forward_speed = obstacle_is_front_ ? 0.0 : 0.1;
+
 
         if (obstacle_on_right_) 
         {
             RCLCPP_INFO(this->get_logger(), "Obstacle on the right, turning left");
-            linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the right, since we were having some issues with that.
-            angular_ = 0.2; // turn left
+            linear_ = forward_speed; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the right, since we were having some issues with that.
+            angular_ = turn_gain; // turn left
         }
         else if (obstacle_on_left_)
         {
             RCLCPP_INFO(this->get_logger(), "Obstacle on the left, turning right");
-            linear_ = 0.1; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the left, since we were having some issues with that.
-            angular_ = -0.2; // turn right
+            linear_ = forward_speed; // CODE COMMENT: made this greater than 0 to try to prevent the robot from getting stuck turning in place if it gets too close to an obstacle on the left, since we were having some issues with that.
+            angular_ = -turn_gain; // turn right
         }
     }
 
@@ -446,20 +461,32 @@ private:
 
     bool tooCloseToObstacle()
     {
-        // check through idices in the front half of the laser range data (90 degrees on either side of the front center laser measurement)
+        // check if there's an obstacle in the front that is too close (minimum front distance) - this is included in wall following routine, so we don't need to set a flag for it here
 
         if (minLaserDist_ < minimumObstacleDistance) 
         {
             RCLCPP_WARN(this->get_logger(), "Too close to obstacle! Executing avoidance maneuver.");
-            if (obstacle_idx_ < front_idx_) // obstacle is on the right
+            double angle = scan->angle_min + minLaserDist_idx_ * scan->angle_increment;
+
+            // Is obstacle within ±45 degrees of front
+            if (std::abs(angle) < deg2rad(45))
+            {
+                obstacle_is_front_ = true;
+            }
+            else
+            {
+                obstacle_is_front_ = false;
+            }
+            
+            if (angle < 0) 
             {
                 obstacle_on_right_ = true;
                 obstacle_on_left_ = false;
             }
-            else if (obstacle_idx_ > front_idx_) // obstacle is on the left
+            else 
             {
-                obstacle_on_right_ = false;
                 obstacle_on_left_ = true;
+                obstacle_on_right_ = false;
             }
             return true;
         }
@@ -482,9 +509,9 @@ private:
     
     void createLasersArray()
     {
-        // Create filteredLaserRange_ array with laser distances above 20cm
-        for (const auto& range : laserRange_) {
-            if (range >= 0.2f) {
+        filteredLaserRange_.clear();
+        for (float range : laserRange_) {
+            if (std::isfinite(range) && range >= 0.2f) {
                 filteredLaserRange_.push_back(range);
             }
         }
@@ -551,13 +578,14 @@ private:
         }
         else if (startup) // if true (first loop), set initial goal yaw and define current positions and set to false
         {       
-            if (filteredLaserRange_.empty()) {return; }     
+            if (laserRange_.empty()) {return; }     
             // Find index of maximum distance from filtered laser ranges
-            max_element = *std::max_element(begin(filteredLaserRange_), end(filteredLaserRange_)); // find maximum distance from filtered laser ranges
-            max_element_idx = std::distance(filteredLaserRange_.begin(), std::max_element(filteredLaserRange_.begin(), filteredLaserRange_.end())); // find index of maximum distance
+            max_element = *std::max_element(begin(laserRange_), end(laserRange_)); // find maximum distance from filtered laser ranges
+            max_element_idx = std::distance(laserRange_.begin(), std::max_element(laserRange_.begin(), laserRange_.end())); // find index of maximum distance
 
             // Determine turn direction based on index of maximum distance
-            turnClockwise = max_element_idx < (filteredLaserRange_.size() / 2); // true = turn right, false = turn left
+            int diff = max_element_idx - front_idx_;
+            turnClockwise = (diff < 0); // true = turn right, false = turn left
             startup = false;
             callstartupRoutine = true; // set flag to call startup routine in control loop
         }
@@ -617,7 +645,6 @@ private:
 
     bool isTurning;
     float minimumObstacleDistance;
-    float minimumFrontDistance_;
 
     float max_element;
     int max_element_idx;
@@ -632,9 +659,9 @@ private:
     int right_idx_;
     int left_idx_;
 
-    float obstacle_idx_;
     bool obstacle_on_right_;
     bool obstacle_on_left_;
+    bool obstacle_is_front_;
 
     float target_yaw; // used in random routine to set a random target yaw to turn towards when the robot is too close to an obstacle
     bool randomTurn; // boolean to indicate whether robot should be in random turn routine
@@ -643,7 +670,6 @@ private:
     float start_pos_x_;
     float start_pos_y_;
     float start_yaw_;
-    float distance_traveled;
     std::string pressed_bumper;
 
     // Stuck detection
@@ -655,7 +681,7 @@ private:
 
     // Tunables
     const double STUCK_DISTANCE_THRESH = 0.15;   // meters
-    const double STUCK_YAW_THRESH = deg2rad(360); // radians
+    const double STUCK_YAW_THRESH = deg2rad(45); // radians
     const double STUCK_TIME_THRESH = 30.0;        // seconds
 
 };
