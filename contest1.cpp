@@ -89,6 +89,7 @@ public:
         obstacle_on_right_ = false;
         obstacle_on_left_ = false;
         obstacle_is_front_ = false;
+        followingWall = false;
 
         target_yaw = 0.0; // initialize target yaw for random routine
         randomTurn = false; // initialize randomTurn boolean for random routine
@@ -227,27 +228,52 @@ private:
 
     void wallFollowingRoutine()
     {
-        /*
-        /* Wall following routine to follow the right wall at a set distance */
-        RCLCPP_INFO(this -> get_logger(),"WALL FOLLOW: front_distance: %.2f , left_distance: %.2f, right_distance: %.2f", front_distance_, left_distance_, right_distance_);
-        
-        // Determine if robot is close to an obstacle in front and needs to turn
-        bool _turnClockwise = false; // true = turn right, false = turn left
-        if (front_distance_ <= 0.5 && !isTurning)
+        if (!followingWall)
         {
-            if (left_distance_ <= 0.5 && right_distance_ > 0.01) { _turnClockwise = true; } // turn right if left wall is also close
-            isTurning = true;
-            setCurrentPositions(); // set current position and yaw as the starting position and yaw for the turning routine
+            if (std::abs(right_distance_ - wallFollowDistance) <= 0.025) // if right side within 5cm of desired following distance
+            {
+                followingWall = true;
+                return;
+            }
+            else if (std::abs(minLaserDist_ - wallFollowDistance) <= 0.025) // if we are with the right distance from the wall but improperly aligned
+            {
+                linear_ = 0;
+                angular_ = 0.2;
+                return;
+            }
+            else if ((minLaserDist_ - wallFollowDistance) > 0.025) // if we are too far from the wall turn to the right to move closer
+            {
+                linear_  = 0.1;
+                angular_ = -0.2;
+                return;
+            } 
+            else if ((minLaserDist_ - wallFollowDistance) < -0.025) // if we are too close to the wall turn to the left to move farther
+            {
+                linear_ = 0.1;
+                angular_  = 0.2;
+                return;
+            } 
         }
-        
-        if (!isTurning) // robot is clear ahead
+        else
         {
-            linear_ = 0.2;
-            angular_ = 0.0;
+            if (!(std::abs(right_distance_ - wallFollowDistance) <= 0.025)) // check if we are still following a wall
+            {
+                followingWall = false;
+                return;
+            }
+            else if (front_distance_ <= 0.6) // check if there is a wall in front, if so turn left to maintain alignment with right wall
+            {
+                linear_ = 0;
+                angular_ = 0.2;
+                return;
+            }
+            else
+            {
+                linear_ = 0.2;
+                angular_ = 0;
+                return;
+            }
         }
-        else { turnRobot(_turnClockwise); } // robot is turning
-
-        return; 
         
     }
 
@@ -687,6 +713,7 @@ private:
     float target_yaw; // used in random routine to set a random target yaw to turn towards when the robot is too close to an obstacle
     bool randomTurn; // boolean to indicate whether robot should be in random turn routine
 
+    bool followingWall;
 
     float start_pos_x_;
     float start_pos_y_;
@@ -702,8 +729,9 @@ private:
 
     // Tunables
     const double STUCK_DISTANCE_THRESH = 0.15;   // meters
-    const double STUCK_YAW_THRESH = deg2rad(270); // radians
+    const double STUCK_YAW_THRESH = deg2rad(360); // radians
     const double STUCK_TIME_THRESH = 65.0;        // seconds
+    const double wallFollowDistance = 0.60;       // meters
 
 };
 
