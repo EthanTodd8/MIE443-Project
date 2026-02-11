@@ -134,12 +134,16 @@ private:
         { 
             int start = std::max(0, front_idx_ - desiredNLasers_);
             int end   = std::min((int)laserRange_.size() - 1, front_idx_ + desiredNLasers_);
+            // RCLCPP_INFO(this->get_logger(), "in correct branch");
             for (int i = start; i <= end; ++i) 
             {
                 if (laserRange_[i] > 0.2) // only consider laser measurements above 20cm for minimum distance calculation (to avoid considering invalid measurements that are too close to the robot)
                 {
-                    minLaserDist_ = std::min(minLaserDist_, laserRange_[i]); // find minimum laser distance within desired angle range
-                    minLaserDist_idx_ = i; // index of closest obstacle within the desired angle range        
+                    if (minLaserDist_ >= laserRange_[i])
+                    {
+                        minLaserDist_ =  laserRange_[i]; // find minimum laser distance within desired angle range
+                        minLaserDist_idx_ = i; // index of closest obstacle within the desired angle range        
+                    }      
                 }
             }
         } 
@@ -208,7 +212,7 @@ private:
             linear_ = 0.0;
             angular_ = turnClockwise ? 0.1 : -0.1; // turn in specified direction - turnClockwise defined in control loop
         }
-        else if (front_distance_ > 0.5) // drive facing furthest wall until wall is within 50cm or less
+        else if (front_distance_ > 0.6) // drive facing furthest wall until wall is within 50cm or less
         {
             RCLCPP_INFO(this->get_logger(), "facing furthest wall, moving to approach");
             linear_ = 0.2;
@@ -465,13 +469,14 @@ private:
     {
         // check if there's an obstacle in the front that is too close (minimum front distance) - this is included in wall following routine, so we don't need to set a flag for it here
 
-        if (minLaserDist_ < minimumObstacleDistance) 
+        if (minLaserDist_ < minimumObstacleDistance && (318 > minLaserDist_idx_ && 0 < minLaserDist_idx_))
         {
             RCLCPP_WARN(this->get_logger(), "Too close to obstacle! Executing avoidance maneuver.");
             double angle = minScanAngle_ + minLaserDist_idx_ * angleIncrement_;
-
-            // Is obstacle within ±45 degrees of front
-            if (std::abs(angle) < deg2rad(45))
+            RCLCPP_INFO(this->get_logger(), "min angle %.2f, min angle idx %.d, increment %.3f", minScanAngle_, minLaserDist_idx_, angleIncrement_);
+            RCLCPP_INFO(this->get_logger(), "angle %.2f", angle);
+            // Is obstacle within ±45 degrees of front OR very close on the side. if so we will turn in place rather than turning while driving
+            if (std::abs(angle) < deg2rad(45) || minLaserDist_ < 0.3 )
             {
                 obstacle_is_front_ = true;
             }
@@ -480,7 +485,7 @@ private:
                 obstacle_is_front_ = false;
             }
             
-            if (angle < 0) 
+            if (angle < (minScanAngle_ + front_idx_ * angleIncrement_)) // calculate the front angle and check if the min distance is occuring to left or right of it
             {
                 obstacle_on_right_ = true;
                 obstacle_on_left_ = false;
@@ -685,7 +690,7 @@ private:
 
     // Tunables
     const double STUCK_DISTANCE_THRESH = 0.15;   // meters
-    const double STUCK_YAW_THRESH = deg2rad(45); // radians
+    const double STUCK_YAW_THRESH = deg2rad(270); // radians
     const double STUCK_TIME_THRESH = 30.0;        // seconds
 
 };
