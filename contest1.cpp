@@ -319,32 +319,6 @@ private:
 
 
     // functions that are called in the routines to perform specific tasks (e.g. turning robot, handling bumper)
-   
-
-    void turnRobot(bool _turnClockwise)
-    {
-        // Turn robot in specified direction until min side laser distance matches min laser distance from filteredLaserRange_
-        RCLCPP_INFO(this->get_logger(), "Turning robot %s", _turnClockwise ? "clockwise" : "counter-clockwise");
-
-        // Find minimum distance from filtered laser ranges
-        float min_element = *std::min_element(begin(filteredLaserRange_), end(filteredLaserRange_)); // find minimum distance from filtered laser ranges
-        float distanceDifference = _turnClockwise ? abs(left_distance_ - min_element) : abs(right_distance_ - min_element); // calculate distance difference based on turn direction
-
-        if (distanceDifference > 0.01 && abs(normalizeAngle(start_yaw_ - yaw_)) < deg2rad(90))  // rotate until minimum laser distance is on beside robot, or to a max turn angle of 90 degrees
-        { 
-            linear_ = 0.0;
-            angular_ = _turnClockwise ? -0.1 : 0.1; // turn in specified direction
-        }
-        else // reached target rotation
-        {
-            RCLCPP_INFO(this->get_logger(), "Turn complete, moving to final stop"); 
-            linear_ = 0.2;
-            angular_ = 0.0; 
-            isTurning = false;
-        }
-
-        return;
-    }
 
     void bumperPressedHandling() 
     {
