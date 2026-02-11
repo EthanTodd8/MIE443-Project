@@ -112,6 +112,8 @@ private:
         nLasers_ = (scan->angle_max - scan-> angle_min) / scan->angle_increment; // could be redefined as nLasers_ = scan->ranges.size();
         laserRange_ = scan->ranges;
         desiredNLasers_ = deg2rad(desiredAngle_) / scan->angle_increment; // number of lasers to consider on each side
+        minScanAngle_ = scan->angle_min;
+        angleIncrement_ = scan->angle_increment;
         //RCLCPP_INFO(this->get_logger(), "Size of laser scan array: %d, and size of offset: %d", nLasers_, desiredNLasers_);
         //RCLCPP_INFO(this->get_logger(), "angle max %.2f, angle min %.2f, range_min %.2f, range_max %.2f", scan->angle_max, scan->angle_min, scan->range_min, scan->range_max);
 
@@ -466,7 +468,7 @@ private:
         if (minLaserDist_ < minimumObstacleDistance) 
         {
             RCLCPP_WARN(this->get_logger(), "Too close to obstacle! Executing avoidance maneuver.");
-            double angle = scan->angle_min + minLaserDist_idx_ * scan->angle_increment;
+            double angle = minScanAngle_ + minLaserDist_idx_ * angleIncrement_;
 
             // Is obstacle within ±45 degrees of front
             if (std::abs(angle) < deg2rad(45))
@@ -634,6 +636,8 @@ private:
     int32_t desiredAngle_;
     std::vector<float> laserRange_;
     std::vector<float> filteredLaserRange_;
+    double minScanAngle_;
+    double angleIncrement_;
 
     bool startup;
     bool callstartupRoutine;
