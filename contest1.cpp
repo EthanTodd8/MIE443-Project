@@ -70,7 +70,7 @@ public:
         nLasers_ = 0; //initilaize counter for number of laser data points
         desiredNLasers_ = 0; // part of the default code: for setting up minLaserDistance in laserCallback - sets up number of laser measurements to consider on either side of the center front laser measurement for minimum laser distance calculation (set as however many lasers are within the desiredAngle range)
         desiredAngle_ = 90; // CHANGED FROM 5 TO 90- defines the angle range on either side of the front center laser measurement to consider for minimum laser distance calculation (returns the min laser distance in this range) - set to 90 degrees by default so that we consider the full front half of the robot for minimum laser distance calculation
-        minimumObstacleDistance = 0.5; //minimum distance the robot can have to an obstacle in any direction before it is considered too close and needs to turn away
+        minimumObstacleDistance = 0.4; //minimum distance the robot can have to an obstacle in any direction before it is considered too close and needs to turn away
         isTurning = false; //boolean to indicate whether the robot is currently turning
         enterBumperHandling = false; //boolean to indicate whether robot should enter bumper handling routine
         backup = false; // boolean to indicate whether robot should be in backup routine within bumper handling
@@ -89,7 +89,7 @@ public:
         obstacle_on_right_ = false;
         obstacle_on_left_ = false;
         obstacle_is_front_ = false;
-        followingWall = false;
+        followingWall = false; // boolean to track whether we are currently following a wall (true) or seraching for a wall (false)
 
         target_yaw = 0.0; // initialize target yaw for random routine
         randomTurn = false; // initialize randomTurn boolean for random routine
@@ -207,13 +207,13 @@ private:
 
         // Turn robot towards furthest wall
         float distanceDifference = abs(front_distance_ - max_element); // calculate distance difference - max_element defined in control loop
-        if (distanceDifference > 0.05 && startupAligned == false)  // if not yet facing furthest wall
+        if (distanceDifference > 0.4 && startupAligned == false)  // if not yet facing furthest wall
         { 
             RCLCPP_INFO(this->get_logger(), "turning to face furthest wall");
             linear_ = 0.0;
             angular_ = turnClockwise ? 0.1 : -0.1; // turn in specified direction - turnClockwise defined in control loop
         }
-        else if (front_distance_ > 0.6) // drive facing furthest wall until wall is within 50cm or less
+        else if (front_distance_ > 0.5) // drive facing furthest wall until wall is within 50cm or less
         {
             RCLCPP_INFO(this->get_logger(), "facing furthest wall, moving to approach");
             linear_ = 0.2;
@@ -230,24 +230,24 @@ private:
     {
         if (!followingWall)
         {
-            if (std::abs(right_distance_ - wallFollowDistance) <= 0.025) // if right side within 5cm of desired following distance
+            if (std::abs(right_distance_ - wallFollowDistance) <= wallFollowTolerance) // if right side within 5cm of desired following distance
             {
                 followingWall = true;
                 return;
             }
-            else if (std::abs(minLaserDist_ - wallFollowDistance) <= 0.025) // if we are with the right distance from the wall but improperly aligned
+            else if (std::abs(minLaserDist_ - wallFollowDistance) <= wallFollowTolerance) // if we are with the right distance from the wall but improperly aligned
             {
                 linear_ = 0;
                 angular_ = 0.2;
                 return;
             }
-            else if ((minLaserDist_ - wallFollowDistance) > 0.025) // if we are too far from the wall turn to the right to move closer
+            else if ((minLaserDist_ - wallFollowDistance) > wallFollowTolerance) // if we are too far from the wall turn to the right to move closer
             {
                 linear_  = 0.1;
                 angular_ = -0.2;
                 return;
             } 
-            else if ((minLaserDist_ - wallFollowDistance) < -0.025) // if we are too close to the wall turn to the left to move farther
+            else if ((minLaserDist_ - wallFollowDistance) < -wallFollowTolerance) // if we are too close to the wall turn to the left to move farther
             {
                 linear_ = 0.1;
                 angular_  = 0.2;
@@ -256,7 +256,7 @@ private:
         }
         else
         {
-            if (!(std::abs(right_distance_ - wallFollowDistance) <= 0.025)) // check if we are still following a wall
+            if (!(std::abs(right_distance_ - wallFollowDistance) <= wallFollowTolerance)) // check if we are still following a wall
             {
                 followingWall = false;
                 return;
@@ -267,7 +267,7 @@ private:
                 angular_ = 0.2;
                 return;
             }
-            else
+            else // if we have a wall the correct distance on the right and no wall in front, drive forward
             {
                 linear_ = 0.2;
                 angular_ = 0;
@@ -492,13 +492,21 @@ private:
             return true;
         }
 
-        // If in startup routine and not moving, may be spinning in circles or oscillating 
-        if (callstartupRoutine && dist < STUCK_DISTANCE_THRESH && time_elapsed > STUCK_TIME_THRESH)
+        if (yaw_change < deg2rad(10) && time_elapsed > STUCK_TIME_THRESH)
         {
-            RCLCPP_WARN(this->get_logger(),"Robot appears stuck in startup(%.2fm moved, %.1f deg turned over %.1fs)",dist, rad2deg(yaw_change), time_elapsed);
+            RCLCPP_WARN(this->get_logger(),"Robot appears stuck(%.2fm moved, %.1f deg turned over %.1fs)",dist, rad2deg(yaw_change), time_elapsed);
             stuck_timer_active_ = false;
             return true;
         }
+
+        // If not moving, may be spinning in circles or oscillating 
+        if (dist < STUCK_DISTANCE_THRESH && time_elapsed > STUCK_TIME_THRESH)
+        {
+            RCLCPP_WARN(this->get_logger(),"Robot appears stuck(%.2fm moved, %.1f deg turned over %.1fs)",dist, rad2deg(yaw_change), time_elapsed);
+            stuck_timer_active_ = false;
+            return true;
+        }
+        RCLCPP_INFO(this->get_logger(), "dist: %f, yaw: %f, time elapsed: %f,", dist, rad2deg(yaw_change), time_elapsed);
         return false;
     }
 
@@ -601,13 +609,33 @@ private:
         // SET UP VARIABLES AND CONDITIONS //
 
         // check if robot is stuck, and if yes, call isStuck and reset handling so that robot goes back to startup routine
-        if (isStuck()) 
+        if (isStuck())
         {
-            RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
-            startup = true;
-            callstartupRoutine = true;
-            isTurning = false;
-            enterBumperHandling = false;
+            if (!callstartupRoutine)
+            {
+                RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
+                RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
+                RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
+                RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
+                RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
+                startup = true;
+                callstartupRoutine = true;
+                isTurning = false;
+                enterBumperHandling = false;
+            }
+            else
+            {
+                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
+                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
+                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
+                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
+                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
+                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
+                startup = false;
+                callstartupRoutine = false;
+                isTurning = false;
+                enterBumperHandling = false;
+            }
         }
 
         // Check if any bumper is pressed
@@ -713,7 +741,7 @@ private:
     float target_yaw; // used in random routine to set a random target yaw to turn towards when the robot is too close to an obstacle
     bool randomTurn; // boolean to indicate whether robot should be in random turn routine
 
-    bool followingWall;
+    bool followingWall; // are we following a wall (true) or still searching for it (false)
 
     float start_pos_x_;
     float start_pos_y_;
@@ -728,10 +756,11 @@ private:
     bool stuck_timer_active_ = false;
 
     // Tunables
-    const double STUCK_DISTANCE_THRESH = 0.15;   // meters
+    const double STUCK_DISTANCE_THRESH = 0.30;   // meters
     const double STUCK_YAW_THRESH = deg2rad(360); // radians
     const double STUCK_TIME_THRESH = 65.0;        // seconds
-    const double wallFollowDistance = 0.60;       // meters
+    const double wallFollowDistance = 0.50;       // meters
+    const double wallFollowTolerance = 0.02;     // meters
 
 };
 
