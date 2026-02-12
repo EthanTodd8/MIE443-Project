@@ -57,7 +57,7 @@ public:
 
         // Initialize variables
         start_time_ = this->now(); //define start time
-        startup = false; //boolean to indicate control loop is executing program to startup before wall following
+        startup = true; //boolean to indicate control loop is executing program to startup before wall following
         callstartupRoutine = false;  //boolean to indicate whether to call startup routines
         startupAligned = false; //booloean to indicate whether we have completed the turn to face the farthest wall
         angular_ = 0.0; //initialize angular velocity
