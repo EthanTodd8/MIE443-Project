@@ -290,7 +290,7 @@ private:
         else
         {
             static std::default_random_engine generator;
-            static std::fisher_f_distribution<double> distribution(3);
+            static std::normal_distribution<double> distribution(1, 1);
             double random_angle = distribution(generator);
             target_yaw = normalizeAngle(yaw_  + random_angle);
             randomTurn = true;
