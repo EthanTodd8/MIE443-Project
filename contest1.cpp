@@ -58,8 +58,8 @@ public:
         // Initialize variables
         start_time_ = this->now(); //define start time
         startup = true; //boolean to indicate control loop is executing program to startup before wall following
-        callstartupRoutine = true;  // boolean to indicate whether to call startup routines
-        startupAligned = false;
+        callstartupRoutine = true;  //boolean to indicate whether to call startup routines
+        startupAligned = false; //booloean to indicate whether we have completed the turn to face the farthest wall
         angular_ = 0.0; //initialize angular velocity
         linear_ = 0.0;  //initialize linear velocity
         pos_x_ = 0.0; //initialize x position
@@ -118,7 +118,7 @@ private:
         //RCLCPP_INFO(this->get_logger(), "Size of laser scan array: %d, and size of offset: %d", nLasers_, desiredNLasers_);
         //RCLCPP_INFO(this->get_logger(), "angle max %.2f, angle min %.2f, range_min %.2f, range_max %.2f", scan->angle_max, scan->angle_min, scan->range_min, scan->range_max);
 
-        /* THIS IS PART OF THE DEFAULT CODE, BUT IT'S BECOME UNNECCESSARY BECAUSE FRONT_IDX CALCULATION IS EQUIVALENT TO FRONT_IDX_ CALCULATION - not sure if we should remove it though, because it is apart of the default code.
+        /* THE FOLLOWING IS PART OF THE DEFAULT CODE, BUT IT'S BECOME UNNECCESSARY BECAUSE FRONT_IDX CALCULATION IS EQUIVALENT TO FRONT_IDX_ CALCULATION - not sure if we should remove it though, because it is apart of the default code.
         // Find minimum laser distance within +/- desiredAngle from front center
         float laser_offset = deg2rad(-90.0);
         uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;   
@@ -161,8 +161,6 @@ private:
         right_distance_ = safe(laserRange_[right_idx_]);  //extract distance of obstacle to right of robot
         left_distance_ = safe(laserRange_[left_idx_]);  //extract distance of obstacle to left of robot
         back_distance_ = safe(laserRange_[back_idx_]); //extract distance of obstacle behind robot
-
-        createLasersArray(); // Define filteredLaserRange array with values from laserRange_ above 20cm
 
         RCLCPP_INFO(this->get_logger(), "front_distance_: %f, right_distance_: %f, left_distance: %f, back_distance: %f" , front_distance_, right_distance_, left_distance_, back_distance_);
     }
@@ -222,7 +220,6 @@ private:
         }
         else { callstartupRoutine = false; startupAligned = false; } // Exit startup routine
         
-        
         return;
     }
 
@@ -280,7 +277,7 @@ private:
     void randomRoutine()
     {
         // enter routine
-        // check if obstalce present
+        // check if obstacle present
         // if yes, set random target angle, and turn towards until reached
         // if no, move forward
 
@@ -293,7 +290,7 @@ private:
         else
         {
             static std::default_random_engine generator;
-            static std::fisher_f_distribution<double> distribution(-M_PI, M_PI);
+            static std::fisher_f_distribution<double> distribution(3);
             double random_angle = distribution(generator);
             target_yaw = normalizeAngle(yaw_  + random_angle);
             randomTurn = true;
@@ -578,10 +575,6 @@ private:
             if (!callstartupRoutine)
             {
                 RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
-                RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
-                RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
-                RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
-                RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
                 startup = true;
                 callstartupRoutine = true;
                 isTurning = false;
@@ -589,11 +582,6 @@ private:
             }
             else
             {
-                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
-                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
-                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
-                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
-                RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
                 RCLCPP_WARN(this->get_logger(), "exiting startup, will attempt wall following");
                 startup = false;
                 callstartupRoutine = false;
