@@ -532,16 +532,6 @@ private:
 
         return angle;
     }
-    
-    void createLasersArray()
-    {
-        filteredLaserRange_.clear();
-        for (float range : laserRange_) {
-            if (std::isfinite(range) && range >= 0.2f) {
-                filteredLaserRange_.push_back(range);
-            }
-        }
-    }
 
     void setCurrentPositions()
     {
@@ -680,7 +670,6 @@ private:
     int32_t desiredNLasers_;
     int32_t desiredAngle_;
     std::vector<float> laserRange_;
-    std::vector<float> filteredLaserRange_;
     double minScanAngle_;
     double angleIncrement_;
 
