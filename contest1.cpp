@@ -57,8 +57,8 @@ public:
 
         // Initialize variables
         start_time_ = this->now(); //define start time
-        startup = true; //boolean to indicate control loop is executing program to startup before wall following
-        callstartupRoutine = true;  //boolean to indicate whether to call startup routines
+        startup = false; //boolean to indicate control loop is executing program to startup before wall following
+        callstartupRoutine = false;  //boolean to indicate whether to call startup routines
         startupAligned = false; //booloean to indicate whether we have completed the turn to face the farthest wall
         angular_ = 0.0; //initialize angular velocity
         linear_ = 0.0;  //initialize linear velocity
@@ -214,7 +214,7 @@ private:
         else if (front_distance_ > 0.5) // drive facing furthest wall until wall is within 50cm or less
         {
             RCLCPP_INFO(this->get_logger(), "facing furthest wall, moving to approach");
-            linear_ = 0.2;
+            linear_ = 0.25;
             angular_ = 0.0; 
             startupAligned = true;
         }
@@ -225,6 +225,18 @@ private:
 
     void wallFollowingRoutine()
     {
+        if (std::abs(right_distance_ - wallFollowDistance) <= wallFollowTolerance) // this check ensures that we don't start the stuck following timer until we are first aligned in following position
+        {
+            if (isStuckFollowing()) // if we are stuck following, reset to startup behaviour to seek furthest wall, otherwise attempt to keep following
+            {
+            RCLCPP_WARN(this->get_logger(), "Resetting to startup behavior");
+            startup = true;
+            callstartupRoutine = true;
+            isTurning = false;
+            enterBumperHandling = false;
+            return;
+            }
+        }
         if (!followingWall)
         {
             if (std::abs(right_distance_ - wallFollowDistance) <= wallFollowTolerance) // if right side within 5cm of desired following distance
@@ -481,6 +493,31 @@ private:
         return false;
     }
 
+    bool isStuckFollowing() //similar to isStuck(), will check if we return to a previous position during wall following, if so then we have followed the wall start to finish and should try to go somewhere else
+    {
+        if (!stuck_following_timer_)
+        {
+            stuck_following_start_time = this->now();
+            stuck_following_start_x_ = pos_x_;
+            stuck_following_start_y_ = pos_y_;
+            stuck_following_start_yaw_ = yaw_;
+            stuck_following_timer_ = true;
+            return false;
+        }
+
+        double dist = std::hypot(pos_x_ - stuck_following_start_x_, pos_y_ - stuck_following_start_y_);
+        double yaw_change = std::abs(normalizeAngle(yaw_ - stuck_following_start_yaw_));
+        double time_elapsed = (this->now() - stuck_following_start_time).seconds();
+        
+        if (time_elapsed > STUCK_TIME_THRESH && dist < STUCK_DISTANCE_THRESH && yaw_change < deg2rad(20)) // if too much time has past and we are within thresholds of our start position, we're stuck
+        {
+            RCLCPP_WARN(this->get_logger(),"Robot appears stuck following wall");
+            stuck_following_timer_ = false;
+            return true;
+        }
+        return false;
+    }
+
     bool tooCloseToObstacle()
     {
         // check if there's an obstacle in the front that is too close (minimum front distance) - this is included in wall following routine, so we don't need to set a flag for it here
@@ -705,6 +742,11 @@ private:
     double stuck_start_y_;
     double stuck_start_yaw_;
     bool stuck_timer_active_ = false;
+    rclcpp::Time stuck_following_start_time;
+    double stuck_following_start_x_;
+    double stuck_following_start_y_;
+    double stuck_following_start_yaw_;
+    bool stuck_following_timer_ = false;
 
     // Tunables
     const double STUCK_DISTANCE_THRESH = 0.30;   // meters
