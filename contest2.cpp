@@ -62,7 +62,36 @@ int main(int argc, char** argv) {
                     i, boxes.coords[i][0], boxes.coords[i][1], boxes.coords[i][2]);
     }
     
+    //Initialize arm controller
+    ArmController armController(node);
+    RCLCPP_INFO(note->get _logger(), "===TESTING ARM CONTROL ===");
+    RCLCPP_INFO(note->get_logger(), "Moving arm to a reachablepose...");
+    //Test arm movement with pose 1
+    cool success = armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
 
+    if(success) {
+        RCLCPP_INFO(node->get_logger(), "Arm moved successfull!");
+        //Test gripper
+        RCLCPP_INFO(node-.get_logger(), "Testing gripper...");
+        armController.openGripper();
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        armController.closeGripper();
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+    }
+    else {
+        RCLCPP_ERROR(node->get_logger(), "Arm movement failed - pose may be unreachable");
+    }
+
+    // //Test arm movement with pose 2
+    success = armController.moveToCartesianPose(0.142, -0.064, 0.400, -0.418, 0.844, 0.238, -0.237);
+
+    if(success)
+{
+    RCLCPP_INFO(note->get_logger(), "Arm moved successfully!");
+}
+else {
+    RCLCPP_INFO(node->get_logger(), "Arm movement failed - pose may be unreachable");
+}
     // Contest countdown timer
     auto start = std::chrono::system_clock::now();
     uint64_t secondsElapsed = 0;
