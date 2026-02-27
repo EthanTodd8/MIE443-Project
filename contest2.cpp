@@ -11,6 +11,56 @@
 #include <fstream>
 #include <sstream>
 
+void startup()
+{
+    //move the arm to location 1 - pickup the object
+    armController.openGripper();
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    RCLCPP_INFO(note->get_logger(), "Moving arm to grab unknown object");
+    //doing the movement in two steps, once to hover above the object and the second to get close enough to grasp
+    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+    
+    //close the gripper to grab the object
+    RCLCPP_INFO(node-.get_logger(), "Grabbing the unknown object");
+    armController.closeGripper();
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    
+    //move the arm to location 2 - in frame for the wrist camera
+    RCLCPP_INFO(note->get_logger(), "Moving arm to position for wrist camera object detection");
+    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+
+    //object detection using the wrist camera and determine and save class
+    captureAndDetect("Wrist", true);
+    detectedClass = latest_class_name_; //NEED TO UPDATE THIS LINE WITH KEY-VALUE SYNTAX
+    
+    startup = false;
+
+}
+
+void putInBin(){
+
+    //move the arm to location 3 - above the box
+    RCLCPP_INFO(node->get_logger(), "Moving arm to position above box");
+    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+
+    //move the arm to location 4 - drop object into box
+    RCLCPP_INFO(node->get_logger(), "Moving arm to drop object into box");
+    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+
+    //open gripper to drop object into box
+    RCLCPP_INFO(node->get_logger(), "Releasing object into box");
+    armController.openGripper();
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    //move the arm back up to location 3
+    RCLCPP_INFO(node->get_logger(), "Moving arm back up after dropping object into box");
+    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+
+    shouldPutInBin = false;
+}
+
 int main(int argc, char** argv) {
     // Setup ROS 2
     rclcpp::init(argc, argv);
@@ -64,39 +114,17 @@ int main(int argc, char** argv) {
     
     //Initialize arm controller
     ArmController armController(node);
-    RCLCPP_INFO(note->get _logger(), "===TESTING ARM CONTROL ===");
-    RCLCPP_INFO(note->get_logger(), "Moving arm to a reachablepose...");
-    //Test arm movement with pose 1
-    cool success = armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
 
-    if(success) {
-        RCLCPP_INFO(node->get_logger(), "Arm moved successfull!");
-        //Test gripper
-        RCLCPP_INFO(node-.get_logger(), "Testing gripper...");
-        armController.openGripper();
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        armController.closeGripper();
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-    }
-    else {
-        RCLCPP_ERROR(node->get_logger(), "Arm movement failed - pose may be unreachable");
-    }
-
-    // //Test arm movement with pose 2
-    success = armController.moveToCartesianPose(0.142, -0.064, 0.400, -0.418, 0.844, 0.238, -0.237);
-
-    if(success)
-{
-    RCLCPP_INFO(note->get_logger(), "Arm moved successfully!");
-}
-else {
-    RCLCPP_INFO(node->get_logger(), "Arm movement failed - pose may be unreachable");
-}
     // Contest countdown timer
     auto start = std::chrono::system_clock::now();
     uint64_t secondsElapsed = 0;
 
     RCLCPP_INFO(node->get_logger(), "Starting contest - 300 seconds timer begins now!");
+
+    //initialize variable values
+    startup = true; 
+    armSuccess = false;
+    gripSuccess = false;
 
     // Execute strategy
     while(rclcpp::ok() && secondsElapsed <= 300) {
@@ -107,6 +135,17 @@ else {
         secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
 
         /***YOUR CODE HERE***/
+
+        //Enter routine based on conditions
+        //startup (pickup and detect our object
+        if(startup){startup();}
+        
+        //calculate path to box
+        //navigate to box
+        //orient to april tag
+        //drop into box
+        if(putInBin){putInBin();} //we may want to move this inside of another routine that shifts the position of the robot relative to the april tag
+        //return to start position
 
 
 
@@ -120,4 +159,10 @@ else {
     RCLCPP_INFO(node->get_logger(), "Contest 2 node shutting down");
     rclcpp::shutdown();
     return 0;
+
+    bool startup;
+    bool armSuccess;
+    bool gripSuccess;
+    char detectedClass;
+
 }
