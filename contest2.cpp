@@ -13,29 +13,54 @@
 
 void startup()
 {
+    //bring the arm to a start position, orienting the wrist camera downwards towards the object of interest
+
+    RCLCPP_INFO(note->get_logger(), "orientin");
+    orientForPickup();
+
+    //call a function that captures an image from the wrist camera/adjust until object is detected and arm is above
+    RCLCPP_INFO(note->get_logger(), "detecting unknown ");
+    //add that in here
+
+    //call a function that moves the arm to the location of the object
+    RCLCPP_INFO(note->get_logger(), "grabbin");
+    grab();
+
+    startup = false;
+
+}
+
+void orientForPickup()
+{
+    //move arm to the starting position
+
+    //evaluate if the object is detected in the wrist camera, if not adjust the arm pose 
+
+    //calculate or save the pose the arm needs to go to for object pickup
+    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    
+}
+
+void grab() {
+
     //move the arm to location 1 - pickup the object
     armController.openGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
     RCLCPP_INFO(note->get_logger(), "Moving arm to grab unknown object");
     //doing the movement in two steps, once to hover above the object and the second to get close enough to grasp
-    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
-    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+    armController.moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2], startupArmPose[3], startupArmPose[4], startupArmPose[5], startupArmPose[6]); //need to change this pose pending simulation testing
+    armController.moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2], startupArmPose[3], startupArmPose[4], startupArmPose[5], startupArmPose[6]); //need to change this pose pending simulation testing
     
     //close the gripper to grab the object
     RCLCPP_INFO(node-.get_logger(), "Grabbing the unknown object");
     armController.closeGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
     
-    //move the arm to location 2 - in frame for the wrist camera
+    //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(note->get_logger(), "Moving arm to position for wrist camera object detection");
+    //change the line below to adjust specifically what coordinates it is that we need to change
     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
-
-    //object detection using the wrist camera and determine and save class
-    captureAndDetect("Wrist", true);
-    detectedClass = latest_class_name_; //NEED TO UPDATE THIS LINE WITH KEY-VALUE SYNTAX
-    
-    startup = false;
 
 }
 
@@ -125,6 +150,8 @@ int main(int argc, char** argv) {
     startup = true; 
     armSuccess = false;
     gripSuccess = false;
+    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; ///initialize the arm pose for locating and grabbing the object as a 'neutral' pose
+
 
     // Execute strategy
     while(rclcpp::ok() && secondsElapsed <= 300) {
@@ -164,5 +191,6 @@ int main(int argc, char** argv) {
     bool armSuccess;
     bool gripSuccess;
     char detectedClass;
+    float array startupArmPose[7];
 
 }
