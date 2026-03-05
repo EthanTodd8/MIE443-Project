@@ -11,18 +11,22 @@
 #include <fstream>
 #include <sstream>
 
-void startup()
+#include "nav2_msgs/action/compute_path_to_pose.hpp" // added - isabelle
+#include "rclcpp_action/rclcpp_action.hpp" // added - isabelle
+#include "nav_msgs/msg/path.hpp" // added for path message type - isabelle
+
+void startupArm()
 {
     //bring the arm to a start position, orienting the wrist camera downwards towards the object of interest
-    RCLCPP_INFO(note->get_logger(), "orientin");
+    RCLCPP_INFO(note->get_logger(), "orienting arm for pickup");
     orientForPickup();
 
     //call a function that captures an image from the wrist camera/adjust until object is detected and arm is above
-    RCLCPP_INFO(note->get_logger(), "detecting unknown ");
+    RCLCPP_INFO(note->get_logger(), "detecting unknown object");
     //add that in here
 
     //call a function that moves the arm to the location of the object
-    RCLCPP_INFO(note->get_logger(), "grabbin");
+    RCLCPP_INFO(note->get_logger(), "grabbing object");
     grab();
 
     startup = false;
@@ -145,10 +149,68 @@ void putInBin(){
     shouldPutInBin = false;
 }
 
+double pathLength(const nav_msgs::msg::Path &path)
+{
+    // this just calculate the distance between the points - doesn't take into account path(?) - isabelle
+    double length = 0.0;
+
+    for (size_t i = 1; i < path.poses.size(); i++)
+    {
+        double dx = path.poses[i].pose.position.x -
+                    path.poses[i-1].pose.position.x;
+
+        double dy = path.poses[i].pose.position.y -
+                    path.poses[i-1].pose.position.y;
+
+        length += sqrt(dx*dx + dy*dy);
+    }
+
+    return length;
+}
+
+std::vector<int> solveTSP(const std::vector<std::vector<double>> &distances, const std::vector<int> &nodes)
+{
+    double best_distance = std::numeric_limits<double>::max();
+    std::vector<int> best_order;
+
+    do
+    {
+        double total = 0.0;
+
+        int current = 0; // start at robot
+
+        for (int next : order)
+        {
+            total += distances[current][next];
+            current = next;
+        }
+
+        if (total < best_distance)
+        {
+            best_distance = total;
+            best_order = order;
+        }
+
+    } while (std::next_permutation(order.begin(), order.end()));
+
+    return best_order;
+}
+
 int main(int argc, char** argv) {
+
     // Setup ROS 2
     rclcpp::init(argc, argv);
     auto node = std::make_shared<rclcpp::Node>("contest2");
+
+    // Add path to client here so that we can use nav2 to compute paths to boxes - isabelle
+    using ComputePathToPose = nav2_msgs::action::ComputePathToPose;
+    auto path_client = rclcpp_action::create_client<ComputePathToPose>(node, "compute_path_to_pose");
+
+    if (!path_client->wait_for_action_server(std::chrono::seconds(10))) {
+        RCLCPP_ERROR(node->get_logger(), "ComputePathToPose server not available");
+    } else {
+        RCLCPP_INFO(node->get_logger(), "Connected to ComputePathToPose server");
+    }
 
     // Load the arm URDF and SRDF directly as node parameters so that
     // MoveGroupInterface builds the SO-ARM101 model
@@ -205,12 +267,105 @@ int main(int argc, char** argv) {
 
     RCLCPP_INFO(node->get_logger(), "Starting contest - 300 seconds timer begins now!");
 
-    //initialize variable values
-    startup = true; 
-    armSuccess = false;
-    gripSuccess = false;
-    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; ///initialize the arm pose for locating and grabbing the object as a 'neutral' pose
 
+    #pragma region PATH PLANNING TO BOXES - Isabelle
+    // Define vector of vectors to hold paths to each box - Isabelle
+    int num_boxes = boxes.coords.size();
+    int num_nodes = num_boxes + 1; // robot + boxes
+    std::vector<std::vector<nav_msgs::msg::Path>> box_paths(num_nodes, std::vector<nav_msgs::msg::Path>(num_nodes)); // 2D vector: holds path to each box for each order - box_paths[start][goal]
+    
+    // Get list of all locations (robot + boxes) - Isabelle
+    std::vector<std::array<double,3>> nodes;
+    nodes.push_back({robotPose.x, robotPose.y, robotPose.phi}); // robot
+    for (auto &box : boxes.coords) { nodes.push_back({box[0], box[1], box[2]}); }
+    
+    // iterate though nodes and compute path from each node to each other node using ComputePathToPose action - Isabelle
+    for (int start = 0; start < num_nodes; start++)
+    {
+        for (int goal = 0; goal < num_nodes; goal++)
+        {
+            if (start == goal)
+                continue;
+
+            auto goal_msg = ComputePathToPose::Goal();
+
+            goal_msg.goal.header.frame_id = "map";
+            goal_msg.goal.header.stamp = node->now();
+
+            goal_msg.start.header.frame_id = "map";
+            goal_msg.start.header.stamp = node->now();
+
+            goal_msg.start.pose.position.x = nodes[start][0];
+            goal_msg.start.pose.position.y = nodes[start][1];
+
+            goal_msg.goal.pose.position.x = nodes[goal][0];
+            goal_msg.goal.pose.position.y = nodes[goal][1];
+
+            tf2::Quaternion q;
+            q.setRPY(0,0,nodes[goal][2]);
+            goal_msg.goal.pose.orientation = tf2::toMsg(q);
+
+            auto goal_future = path_client->async_send_goal(goal_msg);
+
+            rclcpp::spin_until_future_complete(node, goal_future);
+
+            auto goal_handle = goal_future.get();
+
+            auto result_future = path_client->async_get_result(goal_handle);
+
+            rclcpp::spin_until_future_complete(node, result_future);
+
+            auto result = result_future.get();
+
+            box_paths[start][goal] = result.result->path;
+
+            RCLCPP_INFO(node->get_logger(), "Path %d -> %d has %ld poses", start, goal, box_paths[start][goal].poses.size());
+        }
+    }
+
+    // build distance matrix from path lengths for TSP solver - Isabelle
+    std::vector<std::vector<double>> distances(num_nodes,std::vector<double>(num_nodes, 0.0)); // 2D vector to hold distances between nodes - distances[start][goal]
+    for (int i = 0; i < num_nodes; i++)
+    {
+        for (int j = 0; j < num_nodes; j++)
+        {
+            if (i == j) continue;
+            distances[i][j] = pathLength(box_paths[i][j]);
+        }
+    }
+
+    // solve TSP to get optimal order of visiting boxes - Isabelle
+    // create list of boxes without robot (first node) to pass to TSP solver
+    std::vector<int> order;
+    for (int i = 1; i <= num_boxes; i++) { order.push_back(i); } 
+    std::vector<int> optimal_order = solveTSP(distances, order);
+
+    // Print optimal order and total distance - Isabelle
+    RCLCPP_INFO(node->get_logger(), "Best route:");
+
+    int current = 0;
+    for (int box : optimal_order)
+    {
+        RCLCPP_INFO(node->get_logger(),
+            " %d -> %d  (%.2f m)",
+            current,
+            box,
+            distances[current][box]);
+
+        current = box;
+    }
+    #pragma endregion END PATH PLANNING TO BOXES
+
+    //initialize variable values
+    bool startup = true; 
+    bool armSuccess = false;
+    char detectedClass;
+    float startupArmPose[7];
+    bool gripSuccess = false;
+    ///initialize the arm pose for locating and grabbing the object as a 'neutral' pose
+    for (int i = 0; i < startupArmPose.size(); i++) {
+        startupArmPose[i] = 0.0;
+    }
 
     // Execute strategy
     while(rclcpp::ok() && secondsElapsed <= 300) {
@@ -224,7 +379,7 @@ int main(int argc, char** argv) {
 
         //Enter routine based on conditions
         //startup (pickup and detect our object
-        if(startup){startup();}
+        if(startup){startupArm();}
         
         //calculate path to box
         //navigate to box
@@ -246,10 +401,6 @@ int main(int argc, char** argv) {
     rclcpp::shutdown();
     return 0;
 
-    bool startup;
-    bool armSuccess;
-    bool gripSuccess;
-    char detectedClass;
-    float array startupArmPose[7];
+
 
 }
