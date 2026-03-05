@@ -14,7 +14,6 @@
 void startup()
 {
     //bring the arm to a start position, orienting the wrist camera downwards towards the object of interest
-
     RCLCPP_INFO(note->get_logger(), "orientin");
     orientForPickup();
 
@@ -32,12 +31,72 @@ void startup()
 
 void orientForPickup()
 {
-    //move arm to the starting position
+    bool checkedLeft = false;
+    bool checkedRight = false;
+    bool checkedFront = false;
 
-    //evaluate if the object is detected in the wrist camera, if not adjust the arm pose 
+    //move arm to the starting position
+     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+
+     //object detection using the wrist camera and determine and save class
+    captureAndDetect("Wrist", true);
+    detectedClass = latest_class_name_;
+
+    //evaluate if the object is detected in the wrist camera, if not adjust the arm pose     
+        while(detectedClass == '0') {
+            RCLCPP_INFO(note->get_logger(), "Object not detected in wrist camera, adjusting arm pose");
+            //add in code to adjust the arm pose here, maybe a for loop that iterates through a set of poses until the object is detected?
+
+            if (detectedClass == '0' && !checkedLeft) {
+                //adjust arm pose to the left
+                RCLCPP_INFO(note->get_logger(), "Object not detected, adjusting arm pose to the left");
+                //add in code to adjust the arm pose to the left here
+                checkedLeft = true;
+            }
+            else if (detectedClass == '0' && !checkedRight) {
+                //adjust arm pose to the right
+                RCLCPP_INFO(note->get_logger(), "Object not detected, adjusting arm pose to the right");
+                //add in code to adjust the arm pose to the right here
+                checkedRight = true;
+            }
+            else if (detectedClass == '0' && !checkedFront) {
+                //adjust arm pose forward
+                RCLCPP_INFO(note->get_logger(), "Object not detected, adjusting arm pose forward");
+                //add in code to adjust the arm pose forward here
+                checkedFront = true;
+            }
+
+            captureAndDetect("Wrist", true);
+            detectedClass = latest_class_name_;
+        }
 
     //calculate or save the pose the arm needs to go to for object pickup
+    //check what type of object it is and adjust the arm pose accordingly if needed
+    //update this section based on how we need to adjust the arm pose based on the object class
+    /*if (detectedClass == "bottle"){
+        startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    }
+    else if (detectedCLass =="") {
+    
     startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+
+    }
+    else if (detectedCLass =="") {
+    
+    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    
+    }
+    else if (detectedCLass =="") {
+    
+    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    
+    }
+    else if (detectedCLass =="") {
+    
+    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    
+    }
+    */
     
 }
 
