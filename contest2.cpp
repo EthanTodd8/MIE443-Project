@@ -61,6 +61,19 @@ int main(int argc, char** argv) {
         RCLCPP_INFO(node->get_logger(), "Box %zu coordinates: x=%.2f, y=%.2f, phi=%.2f",
                     i, boxes.coords[i][0], boxes.coords[i][1], boxes.coords[i][2]);
     }
+
+    // Initialise AprilTag detector
+
+    AprilTagDetector tagDetector(node);
+    std::vector<int> candidate_tags ={0,1,2,3,4};
+
+    // To change reference frame to other framee
+
+    // tagDetector.setReferenceFrame("oakd_rgb_camera_optical_frame");
+
+    // Initialise YOLO object detector
+    // YoloInterface yoloDetector(node);
+
     
 
     // Contest countdown timer
@@ -78,6 +91,28 @@ int main(int argc, char** argv) {
         secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
 
         /***YOUR CODE HERE***/
+
+        /***TEST CODE FOR APRILTAG DETECTION***/
+        static uint64_t lastPrintTime = 0;
+        if (secondsElapsed > lastPrintTime) {
+            lastPrintTime = secondsElapsed;
+            auto visible_tags = tagDetector.getVisibleTags(candidate_tags);
+            if (!visible_tags.empty()) {
+                for (int tag_id : visible_tags) {
+                    auto pose = tagDetector.getTagPose(tag_id);
+                    if (pose.has_value()) {
+                        RCLCPP_INFO(node->get_logger(),
+                            "%s -> tag%d: pos(%.3f, %.3f, %.3f) ori(%.3f, %.3f, %.3f, %.3f)",
+                            tagDetector.getReferenceFrame().c_str(), tag_id,
+                            pose->position.x, pose->position.y, pose->position.z,
+                            pose->orientation.x, pose->orientation.y, pose->orientation.z, pose->orientation.w);
+                    }
+                }
+            } else {
+                RCLCPP_INFO(node->get_logger(), "No tags visible");
+            }
+            RCLCPP_INFO(node->get_logger(), "--------------------------------");
+        }
 
 
 
