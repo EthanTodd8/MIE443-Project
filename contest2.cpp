@@ -11,9 +11,76 @@
 #include <fstream>
 #include <sstream>
 
+#include <optional>      /* std::optional lets getBinTagPose() return either a real Pose
+                          or "nothing found" without using raw pointers */ 
+                          
 #include "nav2_msgs/action/compute_path_to_pose.hpp" // added - isabelle
 #include "rclcpp_action/rclcpp_action.hpp" // added - isabelle
 #include "nav_msgs/msg/path.hpp" // added for path message type - isabelle
+
+rclcpp::Node::SharedPtr node;  // global - to make it accessible everywhere
+//new AprilTag globals
+AprilTagDetector* tagDetector   = nullptr;
+std::vector<int>  candidateTags = {0, 1, 2, 3, 4};
+
+/*new forward declarations for the two AprilTag functions. 
+The compiler needs to see these before main() calls them inside the while loop.*/
+bool aprilTagDetected();
+std::optional<geometry_msgs::msg::Pose> getBinTagPose();
+
+/*aprilTagDetected() -  Called in Phase 3 of the while loop after the robot arrives
+       at a box location. Checks if any of the 5 bin tags are
+       visible and have a solvable 3D pose. Returns true the moment
+       one is confirmed, advancing the state machine to Phase 4.
+       Returns false so the loop keeps waiting if nothing is visible*/
+bool aprilTagDetected()
+        {
+            if (!tagDetector) return false;
+            auto visible = tagDetector->getVisibleTags(candidateTags);
+            if (visible.empty()) {
+                RCLCPP_INFO(node->get_logger(), "AprilTag: no tags visible");
+                return false;
+            }
+            for (int tag_id : visible) {
+                auto pose = tagDetector->getTagPose(tag_id);
+                if (pose.has_value()) {
+                    RCLCPP_INFO(node->get_logger(),
+                        "AprilTag detected: tag%d  pos(%.3f, %.3f, %.3f)"
+                        "  ori(%.3f, %.3f, %.3f, %.3f)",
+                        tag_id,
+                        pose->position.x, pose->position.y, pose->position.z,
+                        pose->orientation.x, pose->orientation.y,
+                        pose->orientation.z, pose->orientation.w);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+/* Called inside putInBin() to get a live 3D reading of the
+       bin tag at the moment the arm is about to move. Returns the
+       Pose of the first visible tag in base_link frame, or
+       std::nullopt if nothing found (putInBin uses a hardcoded
+       fallback in that case). A live reading here rather than a
+       saved value from Phase 3 keeps the arm target accurate even
+       if the robot drifted slightly after navigating*/
+
+std::optional<geometry_msgs::msg::Pose> getBinTagPose()
+        {
+            if (!tagDetector) return std::nullopt;
+            auto visible = tagDetector->getVisibleTags(candidateTags);
+            for (int tag_id : visible) {
+                auto pose = tagDetector->getTagPose(tag_id);
+                if (pose.has_value()) {
+                    RCLCPP_INFO(node->get_logger(),
+                        "getBinTagPose: using tag%d at pos(%.3f, %.3f, %.3f)",
+                        tag_id,
+                        pose->position.x, pose->position.y, pose->position.z);
+                    return pose;
+                }
+            }
+            return std::nullopt;
+        }
 
 void startupArm()
 {
@@ -149,6 +216,81 @@ void putInBin(){
     shouldPutInBin = false;
 }
 
+/*putInBin() rewrittem
+         1. Calls getBinTagPose() for the live 3D bin tag position.
+         2. Adds HOVER_Z upward and BIN_X_OFFSET forward to compute
+            the arm target above the bin opening. These two constants
+            are the only values to tune to match your physical bin.
+         3. Moves to hover, checks reachability, lowers 5 cm, opens
+            the gripper, retracts, returns to neutral pose.
+         4. Falls back to hardcoded coords if tag is not visible.
+         5. Sets shouldPutInBin = false when done so the state
+            machine moves on to the next box.
+/* void putInBin()
+                {
+            RCLCPP_INFO(node->get_logger(), "putInBin: locating bin via AprilTag...");
+
+            auto tagPose = getBinTagPose();
+
+            if (!tagPose.has_value()) {
+                RCLCPP_WARN(node->get_logger(),
+                    "putInBin: no AprilTag visible — dropping at fallback pose");
+                armController.moveToCartesianPose(
+                    0.300, 0.000, 0.400, -0.471, -0.557, 0.564, -0.387);
+                armController.openGripper();
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                armController.moveToCartesianPose(
+                    0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
+                shouldPutInBin = false;
+                return;
+            }
+
+            constexpr double HOVER_Z      = 0.15; // metres above tag — tune to your bin rim height
+            constexpr double BIN_X_OFFSET = 0.05; // metres forward into bin past the tag face
+
+            double target_x = tagPose->position.x + BIN_X_OFFSET;
+            double target_y = tagPose->position.y;
+            double target_z = tagPose->position.z + HOVER_Z;
+
+            // same gripper quaternion used throughout the file
+            constexpr double ORI_X = -0.471;
+            constexpr double ORI_Y = -0.557;
+            constexpr double ORI_Z =  0.564;
+            constexpr double ORI_W = -0.387;
+
+            RCLCPP_INFO(node->get_logger(),
+                "putInBin: moving above bin at (%.3f, %.3f, %.3f)",
+                target_x, target_y, target_z);
+
+            bool success = armController.moveToCartesianPose(
+                target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
+
+            if (!success) {
+                RCLCPP_ERROR(node->get_logger(),
+                    "putInBin: hover pose unreachable — aborting drop");
+                shouldPutInBin = false;
+                return;
+            }
+
+            double drop_z = target_z - 0.05;
+            armController.moveToCartesianPose(
+                target_x, target_y, drop_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
+
+            RCLCPP_INFO(node->get_logger(), "putInBin: releasing object");
+            armController.openGripper();
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+
+            RCLCPP_INFO(node->get_logger(), "putInBin: retracting arm");
+            armController.moveToCartesianPose(
+                target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
+
+            armController.moveToCartesianPose(
+                0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
+
+            RCLCPP_INFO(node->get_logger(), "putInBin: complete");
+            shouldPutInBin = false;
+        }*/
+
 double pathLength(const nav_msgs::msg::Path &path)
 {
     // this just calculate the distance between the points - doesn't take into account path(?) - isabelle
@@ -264,7 +406,14 @@ int main(int argc, char** argv) {
     }
     
     //Initialize arm controller
-    ArmController armController(node);
+    ArmController armController(node); 
+    
+    AprilTagDetector aprilDetector(node);
+    tagDetector = &aprilDetector;
+    RCLCPP_INFO(node->get_logger(), "AprilTagDetector initialised (ref frame: %s, candidate tags: 0-4)",
+            aprilDetector.getReferenceFrame().c_str());
+        // Optional: uncomment to use camera frame instead of base_link
+        // aprilDetector.setReferenceFrame("oakd_rgb_camera_optical_frame");
 
     // Contest countdown timer
     auto start = std::chrono::system_clock::now();
@@ -456,17 +605,21 @@ int main(int argc, char** argv) {
             arrivedAtGoal = moveToGoal(goal_x, goal_y, goal_phi); // returns true when robot reaches goal, false if navigation failed
             currentBoxIndex++;
         }
-        else if (arrivedAtGoal && currentBoxIndex < full_route.size() - 1 && aprilTagDetected()) { // check if we have arrived at the goal and if the april tag is detected
-            // read april tag
-            // if april tag is detected, and matched the item, set:
-            itemDetected = true;
-            arrivedAtGoal = false; // reset flag for next navigation goal
+        //added the apriltag bits, replaced the old code for state 3 and 4
+           else if (arrivedAtGoal && !itemDetected && currentBoxIndex < (int)full_route.size() - 1) {
+              if (aprilTagDetected()) {
+                  RCLCPP_INFO(node->get_logger(),
+                      "Bin AprilTag confirmed — preparing to drop object");
+                  itemDetected   = true;
+                  shouldPutInBin = true;
+                  arrivedAtGoal  = false;
+              }
+          }
+          else if (itemDetected && shouldPutInBin) {
+            putInBin();
+            itemDetected = false;
         }
-        else if (itemDetected) { // check if the item is detected and we have arrived at the goal
-            //drop into box
-            else if (PutInBin){putInBin();} //we may want to move this inside of another routine that shifts the position of the robot relative to the april tag
-            //return to start position
-        }
+
         else {continue;}
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
