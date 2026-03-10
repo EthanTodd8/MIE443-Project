@@ -116,7 +116,7 @@ void grab() {
     armController.moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2], startupArmPose[3], startupArmPose[4], startupArmPose[5], startupArmPose[6]); //need to change this pose pending simulation testing
     
     //close the gripper to grab the object
-    RCLCPP_INFO(node-.get_logger(), "Grabbing the unknown object");
+    RCLCPP_INFO(note->get_logger(), "Grabbing the unknown object");
     armController.closeGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
     
@@ -168,8 +168,10 @@ double pathLength(const nav_msgs::msg::Path &path)
     return length;
 }
 
-std::vector<int> solveTSP(const std::vector<std::vector<double>> &distances, const std::vector<int> &nodes)
+std::vector<int> solveTSP(const std::vector<std::vector<double>> &distances, std::vector<int> order)
 {
+    // returns the optimal order of visiting the boxes (not including the robot which is node 0)
+
     double best_distance = std::numeric_limits<double>::max();
     std::vector<int> best_order;
 
@@ -184,6 +186,9 @@ std::vector<int> solveTSP(const std::vector<std::vector<double>> &distances, con
             total += distances[current][next];
             current = next;
         }
+
+        // ADD RETURN TO ROBOT
+        total += distances[current][0];
 
         if (total < best_distance)
         {
@@ -276,8 +281,17 @@ int main(int argc, char** argv) {
     
     // Get list of all locations (robot + boxes) - Isabelle
     std::vector<std::array<double,3>> nodes;
-    nodes.push_back({robotPose.x, robotPose.y, robotPose.phi}); // robot
+    nodes.push_back({robotPose.x, robotPose.y, robotPose.phi}); // robot position is the first node
     for (auto &box : boxes.coords) { nodes.push_back({box[0], box[1], box[2]}); }
+
+    // Add buffer to coordinates so that robot doesn't try to drive directly to the center of the box and instead goes to a point slightly in front of it - Isabelle
+    for (int i = 1; i < num_nodes; i++)
+    {
+        double buffer = 0.2; // 20 cm buffer in front of box
+        double angle = nodes[i][2]; // orientation of box
+        nodes[i][0] -= buffer * cos(angle); // adjust x coordinate
+        nodes[i][1] -= buffer * sin(angle); // adjust y coordinate
+    }
     
     // iterate though nodes and compute path from each node to each other node using ComputePathToPose action - Isabelle
     for (int start = 0; start < num_nodes; start++)
@@ -335,15 +349,26 @@ int main(int argc, char** argv) {
     }
 
     // solve TSP to get optimal order of visiting boxes - Isabelle
-    // create list of boxes without robot (first node) to pass to TSP solver
+    // create list of boxes without robot (first node) to pass to TSP solver 
     std::vector<int> order;
     for (int i = 1; i <= num_boxes; i++) { order.push_back(i); } 
     std::vector<int> optimal_order = solveTSP(distances, order);
+    std::vector<int> full_route;
+    full_route.push_back(0);  // start at robot
+
+    for (int box : optimal_order)
+    {
+        full_route.push_back(box);
+    }
+
+    full_route.push_back(0);  // return to start
 
     // Print optimal order and total distance - Isabelle
     RCLCPP_INFO(node->get_logger(), "Best route:");
 
     int current = 0;
+    double total_distance = 0.0;
+
     for (int box : optimal_order)
     {
         RCLCPP_INFO(node->get_logger(),
@@ -352,8 +377,27 @@ int main(int argc, char** argv) {
             box,
             distances[current][box]);
 
+        total_distance += distances[current][box];
         current = box;
     }
+
+    // return to robot
+    RCLCPP_INFO(node->get_logger(),
+        " %d -> %d  (%.2f m)  [RETURN]",
+        current,
+        0,
+        distances[current][0]);
+
+    total_distance += distances[current][0];
+
+    RCLCPP_INFO(node->get_logger(), "Total route length: %.2f m", total_distance);
+
+    // Define list of box locations for navigation () - Isabelle
+    std::vector<std::array<double,3>> box_locations;
+    for (auto &box : boxes.coords) {
+        box_locations.push_back({box[0], box[1], box[2]});
+    }
+
     #pragma endregion END PATH PLANNING TO BOXES
 
     //initialize variable values
@@ -363,9 +407,19 @@ int main(int argc, char** argv) {
     float startupArmPose[7];
     bool gripSuccess = false;
     ///initialize the arm pose for locating and grabbing the object as a 'neutral' pose
-    for (int i = 0; i < startupArmPose.size(); i++) {
+    for (int i = 0; i < startupArmPose.size(); i++) { // since startupArmPose is a C-style array, we can't use range-based for loop, so we have to use 7
         startupArmPose[i] = 0.0;
     }
+
+
+    int currentBoxIndex = 0; // index to keep track of which box we are navigating to
+    bool arrivedAtGoal = false; // flag to indicate if we have arrived at the current goal
+    bool itemDetected = false; // flag to indicate if the item is detected in the wrist camera
+
+    // Define starting coordinates
+    double start_x = robotPose.x;
+    double start_y = robotPose.y;
+    double start_phi = robotPose.phi;
 
     // Execute strategy
     while(rclcpp::ok() && secondsElapsed <= 300) {
@@ -379,16 +433,41 @@ int main(int argc, char** argv) {
 
         //Enter routine based on conditions
         //startup (pickup and detect our object
-        if(startup){startupArm();}
-        
-        //calculate path to box
-        //navigate to box
-        //orient to april tag
-        //drop into box
-        if(putInBin){putInBin();} //we may want to move this inside of another routine that shifts the position of the robot relative to the april tag
-        //return to start position
+        if(startup) {
+            startupArm();
+        }
+        else if (currentBoxIndex < full_route.size() - 1 && !arrivedAtGoal && !itemDetected) { // check if there are more boxes to navigate to and if we are not currently in the process of putting a box in the bin`
+            //navigate to box
+            int goal_node = full_route[currentBoxIndex + 1];
 
+            // determine final coordinates to navigate to (robot or box)
+            double goal_x, goal_y, goal_phi;
+            if (goal_node == 0) {
+                goal_x = start_x;
+                goal_y = start_y;
+                goal_phi = start_phi;
+            } else {
+                goal_x = box_locations[goal_node - 1][0];
+                goal_y = box_locations[goal_node - 1][1];
+                goal_phi = box_locations[goal_node - 1][2];
+            }
 
+            RCLCPP_INFO(node->get_logger(), "Navigating to node %d at (%.2f, %.2f, %.2f)", goal_node, goal_x, goal_y, goal_phi);
+            arrivedAtGoal = moveToGoal(goal_x, goal_y, goal_phi); // returns true when robot reaches goal, false if navigation failed
+            currentBoxIndex++;
+        }
+        else if (arrivedAtGoal && currentBoxIndex < full_route.size() - 1 && aprilTagDetected()) { // check if we have arrived at the goal and if the april tag is detected
+            // read april tag
+            // if april tag is detected, and matched the item, set:
+            itemDetected = true;
+            arrivedAtGoal = false; // reset flag for next navigation goal
+        }
+        else if (itemDetected) { // check if the item is detected and we have arrived at the goal
+            //drop into box
+            else if (PutInBin){putInBin();} //we may want to move this inside of another routine that shifts the position of the robot relative to the april tag
+            //return to start position
+        }
+        else {continue;}
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
