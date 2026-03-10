@@ -51,46 +51,11 @@ class YoloDetectorNode(Node):
         # Run YOLO inference
         results = self.model(image, verbose=False, device='cpu')
         boxes = results[0].boxes
-        
-        if boxes is None or len(boxes) == 0:
-            response.success = False
-            response.class_id = -1
-            response.class_name = ""
-            response.confidence = 0.0
-            response.message = "No objects detected"
-            return response
-        
-        ##filter by confidence threshold
-        mask = boxes.conf >= self.confidence_threshold
-        if not mask.any():
-            response.success = False
-            response.class_id = -1
-            response.class_name = ""
-            response.confidence = 0.0
-            response.message = f"No detections found above confidence threshold {self.confidence_threshold}"
-            return response
-        
-        #Get highest confidence detection
-        best_idx = boxes.conf.argmax()
-        class_id = int(boxes.cls[best_idx])
-        confidence = float(boxes.conf[best_idx])
-        class_name = self.model.names[class_id]
-        
-        response.success = True
-        response.class_id = class_id
-        response.class_name = class_name  # Return class as string
-        response.confidence = confidence
-        response.message = f"Detected {class_name} with confidence {confidence:.4f}"
-        
-        if save_detected_image:
-            filename = f"yourpath/save/yolo_detections_{class_name}_.jpg"
-            annotated_image = results[0].plot()  # Get annotated image with bounding boxes
-            cv2.imwrite(filename, annotated_image)
-            self.get_logger().info(f'Saved annotated image: {filename}')
-            
-        self.get_logger().info(f"Detected {class_name}, ({confidence:.4f})")
-        return response
 
+        ### YOUR CODE HERE ###
+  
+
+        return response
 
 
 def main(args=None):

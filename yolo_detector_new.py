@@ -10,7 +10,7 @@ from mie443_contest2.srv import DetectObject
 import cv2
 import numpy as np
 from ultralytics import YOLO
-from typing import List, Tuple, Optional
+#from typing import List, Tuple, Optional
 
 
 class YoloDetectorNode(Node):
