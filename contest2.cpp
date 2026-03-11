@@ -32,7 +32,7 @@ The compiler needs to see these before main() calls them inside the while loop.*
 std::optional<geometry_msgs::msg::Pose> aprilTagDetected()
 {
     std::optional<geometry_msgs::msg::Pose> tagPose; 
-    auto visible_tags = tagDetector.getVisibleTags(candidate_tags, 1000);
+    auto visible_tags = tagDetector.getVisibleTags(candidate_tags);
 
     if (!visible_tags.empty()) {
         for (int tag_id : visible_tags) {
@@ -43,7 +43,6 @@ std::optional<geometry_msgs::msg::Pose> aprilTagDetected()
                     tagDetector.getReferenceFrame().c_str(), tag_id,
                     tagPose->position.x, tagPose->position.y, tagPose->position.z,
                     tagPose->orientation.x, tagPose->orientation.y, tagPose->orientation.z, tagPose->orientation.w);
-                break; // use the first visible tag with a valid pose
             }
         }
     }
@@ -195,102 +194,102 @@ void grab() {
 
 }
 
-void putInBin(){
+// void putInBin(){
 
-    //move the arm to location 3 - above the box
-    RCLCPP_INFO(node->get_logger(), "Moving arm to position above box");
-    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+//     //move the arm to location 3 - above the box
+//     RCLCPP_INFO(node->get_logger(), "Moving arm to position above box");
+//     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
 
-    //move the arm to location 4 - drop object into box
-    RCLCPP_INFO(node->get_logger(), "Moving arm to drop object into box");
-    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+//     //move the arm to location 4 - drop object into box
+//     RCLCPP_INFO(node->get_logger(), "Moving arm to drop object into box");
+//     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
 
-    //open gripper to drop object into box
-    RCLCPP_INFO(node->get_logger(), "Releasing object into box");
+//     //open gripper to drop object into box
+//     RCLCPP_INFO(node->get_logger(), "Releasing object into box");
+//     armController.openGripper();
+//     std::this_thread::sleep_for(std::chrono::seconds(2));
+
+//     //move the arm back up to location 3
+//     RCLCPP_INFO(node->get_logger(), "Moving arm back up after dropping object into box");
+//     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+
+//     shouldPutInBin = false;
+// }
+
+// putInBin() rewrittem
+//          1. Calls getBinTagPose() for the live 3D bin tag position.
+//          2. Adds HOVER_Z upward and BIN_X_OFFSET forward to compute
+//             the arm target above the bin opening. These two constants
+//             are the only values to tune to match your physical bin.
+//          3. Moves to hover, checks reachability, lowers 5 cm, opens
+//             the gripper, retracts, returns to neutral pose.
+//          4. Falls back to hardcoded coords if tag is not visible.
+//          5. Sets shouldPutInBin = false when done so the state
+//             machine moves on to the next box.
+void putInBin()
+{
+    RCLCPP_INFO(node->get_logger(), "putInBin: locating bin via AprilTag...");
+
+    auto tagPose = getBinTagPose();
+
+    if (!tagPose.has_value()) {
+        RCLCPP_WARN(node->get_logger(),
+            "putInBin: no AprilTag visible — dropping at fallback pose");
+        armController.moveToCartesianPose(
+            0.300, 0.000, 0.400, -0.471, -0.557, 0.564, -0.387);
+        armController.openGripper();
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        armController.moveToCartesianPose(
+            0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
+        shouldPutInBin = false;
+        return;
+    }
+
+    constexpr double HOVER_Z      = 0.15; // metres above tag — tune to your bin rim height
+    constexpr double BIN_X_OFFSET = 0.05; // metres forward into bin past the tag face
+
+    double target_x = tagPose->position.x + BIN_X_OFFSET;
+    double target_y = tagPose->position.y;
+    double target_z = tagPose->position.z + HOVER_Z;
+
+    // same gripper quaternion used throughout the file
+    constexpr double ORI_X = -0.471;
+    constexpr double ORI_Y = -0.557;
+    constexpr double ORI_Z =  0.564;
+    constexpr double ORI_W = -0.387;
+
+    RCLCPP_INFO(node->get_logger(),
+        "putInBin: moving above bin at (%.3f, %.3f, %.3f)",
+        target_x, target_y, target_z);
+
+    bool success = armController.moveToCartesianPose(
+        target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
+
+    if (!success) {
+        RCLCPP_ERROR(node->get_logger(),
+            "putInBin: hover pose unreachable — aborting drop");
+        shouldPutInBin = false;
+        return;
+    }
+
+    double drop_z = target_z - 0.05;
+    armController.moveToCartesianPose(
+        target_x, target_y, drop_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
+
+    RCLCPP_INFO(node->get_logger(), "putInBin: releasing object");
     armController.openGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
-    //move the arm back up to location 3
-    RCLCPP_INFO(node->get_logger(), "Moving arm back up after dropping object into box");
-    armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+    RCLCPP_INFO(node->get_logger(), "putInBin: retracting arm");
+    armController.moveToCartesianPose(
+        target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
 
+    armController.moveToCartesianPose(
+        0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
+
+    RCLCPP_INFO(node->get_logger(), "putInBin: complete");
     shouldPutInBin = false;
 }
-
-/*putInBin() rewrittem
-         1. Calls getBinTagPose() for the live 3D bin tag position.
-         2. Adds HOVER_Z upward and BIN_X_OFFSET forward to compute
-            the arm target above the bin opening. These two constants
-            are the only values to tune to match your physical bin.
-         3. Moves to hover, checks reachability, lowers 5 cm, opens
-            the gripper, retracts, returns to neutral pose.
-         4. Falls back to hardcoded coords if tag is not visible.
-         5. Sets shouldPutInBin = false when done so the state
-            machine moves on to the next box.
-/* void putInBin()
-                {
-            RCLCPP_INFO(node->get_logger(), "putInBin: locating bin via AprilTag...");
-
-            auto tagPose = getBinTagPose();
-
-            if (!tagPose.has_value()) {
-                RCLCPP_WARN(node->get_logger(),
-                    "putInBin: no AprilTag visible — dropping at fallback pose");
-                armController.moveToCartesianPose(
-                    0.300, 0.000, 0.400, -0.471, -0.557, 0.564, -0.387);
-                armController.openGripper();
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-                armController.moveToCartesianPose(
-                    0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
-                shouldPutInBin = false;
-                return;
-            }
-
-            constexpr double HOVER_Z      = 0.15; // metres above tag — tune to your bin rim height
-            constexpr double BIN_X_OFFSET = 0.05; // metres forward into bin past the tag face
-
-            double target_x = tagPose->position.x + BIN_X_OFFSET;
-            double target_y = tagPose->position.y;
-            double target_z = tagPose->position.z + HOVER_Z;
-
-            // same gripper quaternion used throughout the file
-            constexpr double ORI_X = -0.471;
-            constexpr double ORI_Y = -0.557;
-            constexpr double ORI_Z =  0.564;
-            constexpr double ORI_W = -0.387;
-
-            RCLCPP_INFO(node->get_logger(),
-                "putInBin: moving above bin at (%.3f, %.3f, %.3f)",
-                target_x, target_y, target_z);
-
-            bool success = armController.moveToCartesianPose(
-                target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
-
-            if (!success) {
-                RCLCPP_ERROR(node->get_logger(),
-                    "putInBin: hover pose unreachable — aborting drop");
-                shouldPutInBin = false;
-                return;
-            }
-
-            double drop_z = target_z - 0.05;
-            armController.moveToCartesianPose(
-                target_x, target_y, drop_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
-
-            RCLCPP_INFO(node->get_logger(), "putInBin: releasing object");
-            armController.openGripper();
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-
-            RCLCPP_INFO(node->get_logger(), "putInBin: retracting arm");
-            armController.moveToCartesianPose(
-                target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
-
-            armController.moveToCartesianPose(
-                0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
-
-            RCLCPP_INFO(node->get_logger(), "putInBin: complete");
-            shouldPutInBin = false;
-        }*/
 
 double pathLength(const nav_msgs::msg::Path &path)
 {
