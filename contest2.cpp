@@ -30,36 +30,33 @@ The compiler needs to see these before main() calls them inside the while loop.*
 
 
 std::optional<geometry_msgs::msg::Pose> aprilTagDetected()
-    {
-        std::optional<geometry_msgs::msg::Pose> tagPose; 
-        auto visible_tags = tagDetector.getVisibleTags(candidate_tags, 1000);
+{
+    std::optional<geometry_msgs::msg::Pose> tagPose; 
+    auto visible_tags = tagDetector.getVisibleTags(candidate_tags, 1000);
 
-        if (!visible_tags.empty()) {
-            for (int tag_id : visible_tags) {
-                tagPose = tagDetector.getTagPose(tag_id);
-                if (tagPose.has_value()) {
-                    RCLCPP_INFO(node->get_logger(),
-                        "%s -> tag%d: pos(%.3f, %.3f, %.3f) ori(%.3f, %.3f, %.3f, %.3f)",
-                        tagDetector.getReferenceFrame().c_str(), tag_id,
-                        tagPose->position.x, tagPose->position.y, tagPose->position.z,
-                        tagPose->orientation.x, tagPose->orientation.y, tagPose->orientation.z, tagPose->orientation.w);
-
-                        // orient robot to face the tag - might not be needed depending on how the coords.xml is set up
-                        double target_yaw = atan2(tagPose->position.y, tagPose->position.x);
-                        moveToGoal(robotPose.x, robotPose.y, target_yaw);
-                }
+    if (!visible_tags.empty()) {
+        for (int tag_id : visible_tags) {
+            tagPose = tagDetector.getTagPose(tag_id);
+            if (tagPose.has_value()) {
+                RCLCPP_INFO(node->get_logger(),
+                    "%s -> tag%d: pos(%.3f, %.3f, %.3f) ori(%.3f, %.3f, %.3f, %.3f)",
+                    tagDetector.getReferenceFrame().c_str(), tag_id,
+                    tagPose->position.x, tagPose->position.y, tagPose->position.z,
+                    tagPose->orientation.x, tagPose->orientation.y, tagPose->orientation.z, tagPose->orientation.w);
+                break; // use the first visible tag with a valid pose
             }
         }
-        else {
-            RCLCPP_WARN(node_->get_logger(), "No AprilTags detected after rotating 360 degrees");
-        }
-
-        if (!tagPose.has_value()) {
-            RCLCPP_ERROR(node_->get_logger(), "Failed to get pose for detected tag");
-        }
-
-        return tagPose;
     }
+    else {
+        RCLCPP_WARN(node_->get_logger(), "No AprilTags detected after rotating 360 degrees");
+    }
+
+    if (!tagPose.has_value()) {
+        RCLCPP_ERROR(node_->get_logger(), "Failed to get pose for detected tag");
+    }
+
+    return tagPose;
+}
 
 /* Called inside putInBin() to get a live 3D reading of the
        bin tag at the moment the arm is about to move. Returns the
@@ -438,13 +435,13 @@ int main(int argc, char** argv) {
     nodes.push_back({robotPose.x, robotPose.y, robotPose.phi}); // robot position is the first node
     for (auto &box : boxes.coords) { nodes.push_back({box[0], box[1], box[2]}); }
 
-    // Add buffer to coordinates so that robot doesn't try to drive directly to the center of the box and instead goes to a point slightly in front of it - Isabelle
+    // adjust coordinates so that robot goal position is 20cm in front of box and facing phi direction of box
     for (int i = 1; i < num_nodes; i++)
     {
         double buffer = 0.2; // 20 cm buffer in front of box
-        double angle = nodes[i][2]; // orientation of box
-        nodes[i][0] -= buffer * cos(angle); // adjust x coordinate
-        nodes[i][1] -= buffer * sin(angle); // adjust y coordinate
+        nodes[i][0] -= buffer * cos(nodes[i][2]);
+        nodes[i][1] -= buffer * sin(nodes[i][2]);
+        nodes[i][2] = 2*M_PI - nodes[i][2]; // adjust robot orientation to face the box
     }
     
     // iterate though nodes and compute path from each node to each other node using ComputePathToPose action - Isabelle
@@ -623,30 +620,13 @@ int main(int argc, char** argv) {
             }
             else 
             {
-                // if couldn't detect tag, try driving around the box (45 degree increments up to 360) and checking for the tag at each new pose. This is to help if the robot's initial approach to the box has the tag out of view (e.g. due to box orientation or slight misnavigation).
+                // if couldn't detect tag, go to next box
                 RCLCPP_INFO(node->get_logger(), "AprilTag not detected at goal pose, trying to adjust position to find tag...");
-                bool tagFound = false;
-                for (int angle = 45; angle < 360; angle += 45) 
-                {
-                    double new_goal_phi = goal_phi + angle * M_PI / 180.0;
-                    RCLCPP_INFO(node->get_logger(), "Adjusting position by rotating to %.2f degrees", new_goal_phi);
-                    moveToGoal(goal_x, goal_y, new_goal_phi);
-
-                    if (aprilTagDetected()) {
-                        RCLCPP_INFO(node->get_logger(),
-                            "Bin AprilTag detected after adjusting position — preparing to drop object");
-                        itemDetected   = true;
-                        arrivedAtGoal  = false;
-                        tagFound = true;
-                        break;
-                    }
-                    else { // goes to next box if it can't find the tag.
-                        arrivedAtGoal = false;
-                        itemDetected = false;
-                    }
-                }
+                itemDetected = false;
+                arrivedAtGoal = false;
             }
-          else if (itemDetected) {
+        }
+        else if (itemDetected) {
             // Use Yolo to determine if the object at this box is the one we picked up - if it is, put it in the bin, if not, skip to the next box
             // if yolo detects object, set objectFound to true, if not, set it to false
             
