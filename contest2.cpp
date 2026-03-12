@@ -74,20 +74,28 @@ std::string yoloDetectionOutput(std::string cameraName, float secondsElapsed, bo
 bool aprilTagDetected(float secondsElapsed)
 {
     static uint64_t lastPrintTime = 0;
+
+    if (!tagDetector) return false; //new addition
+
     std::optional<geometry_msgs::msg::Pose> tagPose; 
 
     if (secondsElapsed > lastPrintTime) {
+        lastPrintTime = secondsElapsed;  //new add
+
         auto visible_tags = tagDetector->getVisibleTags(candidateTags);
 
         if (!visible_tags.empty()) {
             for (int tag_id : visible_tags) {
-                tagPose = tagDetector->getTagPose(tag_id);
+                auto tagPose = tagDetector->getTagPose(tag_id);
+
                 if (tagPose.has_value()) {
                     RCLCPP_INFO(node->get_logger(),
                         "%s -> tag%d: pos(%.3f, %.3f, %.3f) ori(%.3f, %.3f, %.3f, %.3f)",
                         tagDetector->getReferenceFrame().c_str(), tag_id,
                         tagPose->position.x, tagPose->position.y, tagPose->position.z,
                         tagPose->orientation.x, tagPose->orientation.y, tagPose->orientation.z, tagPose->orientation.w);
+                    
+                    return true;  //new add: immediately confirm detection
                 }
             }
         }
@@ -95,14 +103,9 @@ bool aprilTagDetected(float secondsElapsed)
             RCLCPP_INFO(node->get_logger(), "No tags visible");
         }
     }
-    else {
-        RCLCPP_INFO(node->get_logger(), "------------------------------------");
+    return false;  //new add, if no valid tag pose is found, return false
     }
-
-
-    return tagPose.has_value();
-}
-
+    
 /* Called inside putInBin() to get a live 3D reading of the
        bin tag at the moment the arm is about to move. Returns the
        Pose of the first visible tag in base_link frame, or
@@ -114,9 +117,12 @@ bool aprilTagDetected(float secondsElapsed)
 std::optional<geometry_msgs::msg::Pose> getBinTagPose()
 {
     if (!tagDetector) return std::nullopt;
+
     auto visible = tagDetector->getVisibleTags(candidateTags);
+
     for (int tag_id : visible) {
         auto pose = tagDetector->getTagPose(tag_id);
+
         if (pose.has_value()) {
             RCLCPP_INFO(node->get_logger(),
                 "getBinTagPose: using tag%d at pos(%.3f, %.3f, %.3f)",
@@ -583,7 +589,8 @@ int main(int argc, char** argv) {
         //Enter routine based on conditions
         //startup (pickup and detect our object
         if(startup) {
-            //objectName = startupArm();
+            
+            objectName = startupArm();
             startup = false;
         }
         
@@ -637,7 +644,7 @@ int main(int argc, char** argv) {
             else 
             {
                 // if couldn't detect tag, go to next box
-                RCLCPP_INFO(node->get_logger(), "AprilTag not detected at goal pose, trying to adjust position to find tag...");
+                RCLCPP_INFO(node->get_logger(), "AprilTag not detected at goal pose, moving on to next box");
                 objectFound = false;
                 arrivedAtGoal = false;
             }
