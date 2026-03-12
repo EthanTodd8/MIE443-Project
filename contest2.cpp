@@ -74,10 +74,10 @@ std::string yoloDetectionOutput(std::string cameraName, float secondsElapsed, bo
 bool aprilTagDetected(float secondsElapsed)
 {
     static uint64_t lastPrintTime = 0;
-
     if (!tagDetector) return false; //new addition
 
-    std::optional<geometry_msgs::msg::Pose> tagPose; 
+    std::optional<geometry_msgs::msg::Pose> tagPose;
+
 
     if (secondsElapsed > lastPrintTime) {
         lastPrintTime = secondsElapsed;  //new add
@@ -94,8 +94,7 @@ bool aprilTagDetected(float secondsElapsed)
                         tagDetector->getReferenceFrame().c_str(), tag_id,
                         tagPose->position.x, tagPose->position.y, tagPose->position.z,
                         tagPose->orientation.x, tagPose->orientation.y, tagPose->orientation.z, tagPose->orientation.w);
-                    
-                    return true;  //new add: immediately confirm detection
+                    return true; //new add: immediately confirm detection
                 }
             }
         }
@@ -104,8 +103,8 @@ bool aprilTagDetected(float secondsElapsed)
         }
     }
     return false;  //new add, if no valid tag pose is found, return false
-    }
-    
+}
+
 /* Called inside putInBin() to get a live 3D reading of the
        bin tag at the moment the arm is about to move. Returns the
        Pose of the first visible tag in base_link frame, or
@@ -535,10 +534,10 @@ int main(int argc, char** argv) {
     RCLCPP_INFO(node->get_logger(), "Total route length: %.2f m", total_distance);
 
     // Define list of box locations for navigation () - Isabelle
-    std::vector<std::array<double,3>> box_locations;
-    for (auto &box : boxes.coords) {
-        box_locations.push_back({box[0], box[1], box[2]});
-    }
+    // std::vector<std::array<double,3>> box_locations;
+    // for (auto &box : boxes.coords) {
+    //     box_locations.push_back({box[0], box[1], box[2]});
+    // }
 
     #pragma endregion END PATH PLANNING TO BOXES
 
@@ -584,12 +583,10 @@ int main(int argc, char** argv) {
         secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
 
         /***YOUR CODE HERE***/
-        //yoloDetectionOutput("wrist", secondsElapsed);
 
         //Enter routine based on conditions
         //startup (pickup and detect our object
         if(startup) {
-            
             objectName = startupArm();
             startup = false;
         }
@@ -600,9 +597,9 @@ int main(int argc, char** argv) {
             int goal_node = full_route[currentBoxIndex + 1];
 
             // determine final coordinates to navigate to (robot or box)
-            goal_x = box_locations[goal_node - 1][0];
-            goal_y = box_locations[goal_node - 1][1];
-            goal_phi = box_locations[goal_node - 1][2];
+            goal_x = nodes[goal_node][0];
+            goal_y = nodes[goal_node][1];
+            goal_phi = nodes[goal_node][2];
 
             if (goal_node == 0) {
                 goal_x = start_x;
@@ -613,15 +610,19 @@ int main(int argc, char** argv) {
             RCLCPP_INFO(node->get_logger(), "Navigating to node %d at (%.2f, %.2f, %.2f)", goal_node, goal_x, goal_y, goal_phi);
             arrivedAtGoal = navigator.moveToGoal(goal_x, goal_y, goal_phi); // returns true when robot reaches goal, false if navigation failed
             RCLCPP_INFO(node->get_logger(), "Arrived at goal: %s", arrivedAtGoal ? "true" : "false");
-            currentBoxIndex++;
+            if (arrivedAtGoal) {
+                currentBoxIndex++;
+            }
         }
         // //added the apriltag bits, replaced the old code for state 3 and 4
         else if (arrivedAtGoal && !objectFound && currentBoxIndex < (int)full_route.size() - 1) 
         {  
             if (aprilTagDetected(secondsElapsed)) // checks if april tag is detected
             {
+
                 RCLCPP_INFO(node->get_logger(),
                     "Bin AprilTag confirmed — preparing to drop object");
+
                 // if tag is detected, use OAKD camera to take picture of item and determine if it is the correct item using Yolo
                 
                 std::string detected = (yoloDetectionOutput("oakd", secondsElapsed, true));
