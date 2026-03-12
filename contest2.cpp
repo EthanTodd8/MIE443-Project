@@ -56,7 +56,6 @@ std::string yoloDetectionOutput(std::string cameraName, float secondsElapsed, bo
             detected = yoloDetector->getObjectName(CameraSource::WRIST, saveImage);
         }
 
-        
         if(!detected.empty()) {
         float confidence = yoloDetector->getConfidence();
         RCLCPP_INFO(node->get_logger(), "Detected: %s (Confidence: %.2f)",
@@ -132,25 +131,15 @@ std::optional<geometry_msgs::msg::Pose> getBinTagPose()
     return std::nullopt;
 }
 
-std::string startupArm()
+void startupArm()
 {
-    //bring the arm to a start position, orienting the wrist camera downwards towards the object of interest
+    //bring the arm to a start position, orienting the wrist camera downwards towards the object of interest and adjust until image is detected
     RCLCPP_INFO(node->get_logger(), "orienting arm for pickup");
     orientForPickup();
-
-    //call a function that captures an image from the wrist camera/adjust until object is detected and arm is above
-    RCLCPP_INFO(node->get_logger(), "detecting unknown object");
-    //add that in here
-        std::string objectName = yoloDetector->getObjectName(CameraSource::WRIST);
-        float confidence = yoloDetector->getConfidence();
-        if (confidence > 0.5) {}
 
     //call a function that moves the arm to the location of the object
     RCLCPP_INFO(node->get_logger(), "grabbing object");
     grab();
-
-    return objectName;
-
 }
 
 bool isTargetObject(std::string name) //check if the given name is in the list of objects of interest
@@ -169,73 +158,62 @@ bool isTargetObject(std::string name) //check if the given name is in the list o
 
 void orientForPickup()
 {
-    //move arm to the starting position
-    float armPose[5][7] = {{0.141, 0.021, 0.197, 0.044, 0.063, 0.817, 0.572}, //starting pose 
+    
+    float armPose[3][7] = {{0.141, 0.021, 0.197, 0.044, 0.063, 0.817, 0.572}, //starting pose and list of poses to adjust to
                            {0.121, -0.102, 0.197, 0.069, 0.034, 0.436, 0.897},
                            {0.043, -0.149, 0.197, 0.077, 0.007, 0.087, 0.993},
-                           {-0.058, -0.124, 0.197, 0.073, -0.025, -0.326, 0.942},
-                           {-0.1, 0.021, 0.197, 0.044, -0.063, -0.817, 0.572}};
+                           };
+    //these will need to be relative to the starting coordinate of the object?
 
+    //move arm to starting pose
     armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5], armPose[0][6]);
+
+    //open gripper
     armController->openGripper();
 
-    std::string detectedClass;
-
-    for (int i=1; i<5; i++){    
+    for (int i=1; i<4; i++){    
         //object detection using the wrist camera and determine and save class
-        std::string detectedClass = yoloDetector->getObjectName(CameraSource::WRIST, true);
-        RCLCPP_INFO(node->get_logger(), "Object not detected in wrist camera, adjusting arm pose");
-                
-        if (!isTargetObject(detectedClass)){ //if we don't see anything and we haven't checked everywhere, update pose
+        detectedClass = yoloDetector->getObjectName(CameraSource::WRIST, true);
+        float confidence = yoloDetector->getConfidence();
+
+        if (!isTargetObject(detectedClass)&&confidence > 0.5){ //if we don't see anything and the confidence is too low
             armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5], armPose[i][6]); 
         }
         else break;
     }
-
-    //calculate or save the pose the arm needs to go to for object pickup
-    //check what type of object it is and adjust the arm pose accordingly if needed
-    //update this section based on how we need to adjust the arm pose based on the object class
-
-    // if (detectedClass == "bottle"){
-    //     startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
-    // }
-    // else if (detectedClass =="") {
-    
-    // startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
-
-    // }
-    // else if (detectedClass =="") {
-    
-    // startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
-    
-    // }
-    // else if (detectedClass =="") {
-    
-    // startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
-    
-    // }
-    // else if (detectedClass =="") {
-    
-    // startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
-    
-    // }
-    
-    
 }
 
 void grab() {
 
     RCLCPP_INFO(node->get_logger(), "Moving arm to grab unknown object");
-    armController->moveToCartesianPose(-0.084, 0.015, 0.177, 0.042, -0.060, -0.817, 0.572); //need to change this pose pending simulation testing
 
-    //close the gripper to grab the object
-    RCLCPP_INFO(node->get_logger(), "Grabbing the unknown object");
+    //check what type of object it is and adjust the arm pose accordingly if needed
+
+    if (detectedClass == "waterbottle"){
+    //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
+
+    }
+    else if (detectedClass =="plant") {
+    //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
+    
+    }
+    else if (detectedClass =="motorcycle") {
+    //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
+
+    }
+    else if (detectedClass =="clock") {
+    //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
+    }
+    else if (detectedClass =="coffee_cup") {
+    //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
+    
+    }
+
     armController->closeGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
     //move the arm to location 2 to pick it up and orient to later drop it in
-    RCLCPP_INFO(node->get_logger(), "Moving arm to position for wrist camera object detection");
-    //change the line below to adjust specifically what coordinates it is that we need to change
+    RCLCPP_INFO(node->get_logger(), "Moving arm to position to later drop in bin");
     armController->moveToCartesianPose(0.021, -0.099, 0.26, -0.787, -0.000, -0.000, 0.617); //need to change this pose pending simulation testing
 
 }
@@ -545,12 +523,10 @@ int main(int argc, char** argv) {
     bool startup = true; 
     bool armSuccess = false;
     char detectedClass;
-    float startupArmPose[7];
+    float startupObjectPose[7];
     bool gripSuccess = false;
     ///initialize the arm pose for locating and grabbing the object as a 'neutral' pose
-    for (int i = 0; i < 7; i++) { // since startupArmPose is a C-style array, we can't use range-based for loop, so we have to use 7
-        startupArmPose[i] = 0.0;
-    }
+    startupObjectPose = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}; // may need to be changed pending simulation testing
 
 
     int currentBoxIndex = 0; // index to keep track of which box we are navigating to
@@ -561,6 +537,8 @@ int main(int argc, char** argv) {
     double start_x = robotPose.x;
     double start_y = robotPose.y;
     double start_phi = robotPose.phi;
+
+   
     std::string objectName = "";
     std::map<std::string, std::array<double, 3>> boxItemCoordinates;
     boxItemCoordinates["waterbottle"] = {0.0, 0.0, 0.0};
