@@ -42,6 +42,13 @@ void grab();
 void putInBin();
 bool isTargetObject(std::string name);
 
+double getYawFromQuaternion(const geometry_msgs::msg::Quaternion &q)
+{
+    tf2::Quaternion tf_q(q.x, q.y, q.z, q.w);
+    double roll, pitch, yaw;
+    tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw);
+    return yaw;
+}
 
 std::string yoloDetectionOutput(std::string cameraName, float secondsElapsed, bool saveImage = false)
 {
@@ -541,11 +548,11 @@ int main(int argc, char** argv) {
    
     std::string objectName = "";
     std::map<std::string, std::array<double, 3>> boxItemCoordinates;
-    boxItemCoordinates["waterbottle"] = {0.0, 0.0, 0.0};
+    boxItemCoordinates["bottle"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["plant"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["motorcycle"] = {0.0, 0.0, 0.0};
-    boxItemCoordinates["piggybank"] = {0.0, 0.0, 0.0};
-    boxItemCoordinates["coffee_cup"] = {0.0, 0.0, 0.0};
+    boxItemCoordinates["clock"] = {0.0, 0.0, 0.0};
+    boxItemCoordinates["clock"] = {0.0, 0.0, 0.0};
 
     double goal_x, goal_y, goal_phi;
 
@@ -597,6 +604,43 @@ int main(int argc, char** argv) {
         {  
             if (aprilTagDetected(secondsElapsed)) // checks if april tag is detected
             {
+                auto tagPose = getBinTagPose();
+
+                if (tagPose.has_value())
+                {
+                    double tag_x = tagPose->position.x;
+                    double tag_y = tagPose->position.y;
+
+                    double tag_yaw = getYawFromQuaternion(tagPose->orientation);
+
+                    const double desired_distance = 0.5; // 50 cm
+
+                    // position 50 cm in front of the tag
+                    double target_x_robot = tag_x - desired_distance * cos(tag_yaw);
+                    double target_y_robot = tag_y - desired_distance * sin(tag_yaw);
+
+                    // robot should face the tag
+                    double target_yaw_robot = atan2(tag_y, tag_x);
+
+                    double goal_x =
+                        robotPose.x +
+                        cos(robotPose.phi) * target_x_robot -
+                        sin(robotPose.phi) * target_y_robot;
+
+                    double goal_y =
+                        robotPose.y +
+                        sin(robotPose.phi) * target_x_robot +
+                        cos(robotPose.phi) * target_y_robot;
+
+                    double goal_phi = robotPose.phi + target_yaw_robot;
+                    goal_phi = atan2(sin(goal_phi), cos(goal_phi));
+
+                    RCLCPP_INFO(node->get_logger(),
+                        "Adjusting position near AprilTag: goal (%.2f, %.2f, %.2f)",
+                        goal_x, goal_y, goal_phi);
+
+                    navigator.moveToGoal(goal_x, goal_y, goal_phi);
+                }
 
                 RCLCPP_INFO(node->get_logger(),
                     "Bin AprilTag confirmed — preparing to drop object");
