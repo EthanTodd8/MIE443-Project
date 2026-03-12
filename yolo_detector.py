@@ -4,6 +4,8 @@ YOLO Object Detection Service for MIE443 Contest 2
 Detects objects using YOLOv8/v13 and returns the highest confidence detection.
 """
 
+from urllib import response
+
 import rclpy
 from rclpy.node import Node
 from mie443_contest2.srv import DetectObject
@@ -76,6 +78,18 @@ class YoloDetectorNode(Node):
         confidence = float(boxes.conf[best_idx])
         class_name = self.model.names[class_id]
         
+        #--NEW--
+        # Get bounding box
+        bbox = boxes.xyxy[best_idx].cpu().numpy()
+        x1, y1, x2, y2 = bbox
+
+        # Get center of bounding box
+        center_x = (x1 + x2) / 2
+        center_y = (y1 + y2) / 2
+        
+        #return center coordinates 
+        response.x = float(center_x)
+        response.y = float(center_y)
         response.success = True
         response.class_id = class_id
         response.class_name = class_name  # Return class as string
