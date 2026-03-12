@@ -10,6 +10,9 @@
 #include <thread>
 #include <fstream>
 #include <sstream>
+#include <map>
+#include <array>
+#include <string>
 
 #include <optional>      /* std::optional lets getBinTagPose() return either a real Pose
                           or "nothing found" without using raw pointers */ 
@@ -23,18 +26,27 @@
 AprilTagDetector* tagDetector   = nullptr;
 std::vector<int>  candidateTags = {0, 1, 2, 3, 4};
 
+// global arm controller
+ArmController* armController = nullptr;
+
 rclcpp::Node::SharedPtr node;
 std::unique_ptr<YoloInterface> yoloDetector;
 
 /*new forward declarations for the two AprilTag functions. 
 The compiler needs to see these before main() calls them inside the while loop.*/
-//bool aprilTagDetected(); 
-//std::optional<geometry_msgs::msg::Pose> getBinTagPose();
-//void yoloDetectionOutput(std::string cameraName, float secondsElapsed);
+bool aprilTagDetected(float secondsElapsed); 
+std::optional<geometry_msgs::msg::Pose> getBinTagPose();
+//std::string yoloDetectionOutput(std::string cameraName, float secondsElapsed, bool saveImage = false);
+void orientForPickup();
+void grab();
+void putInBin();
+bool isTargetObject(std::string name);
+
 
 std::string yoloDetectionOutput(std::string cameraName, float secondsElapsed, bool saveImage = false)
 {
     static uint64_t lastYoloTime = 0;
+
     if (secondsElapsed >= lastYoloTime + 2) {
         lastYoloTime = secondsElapsed;
         std::string detected = yoloDetector->getObjectName(CameraSource::OAKD, saveImage);
@@ -52,8 +64,10 @@ std::string yoloDetectionOutput(std::string cameraName, float secondsElapsed, bo
         } else{
         RCLCPP_INFO(node->get_logger(), "No object detected");
         }
+        return detected;
+
     }
-    return detected;
+    return "";
 }
 
 
@@ -130,7 +144,6 @@ std::string startupArm()
     RCLCPP_INFO(node->get_logger(), "grabbing object");
     grab();
 
-    startup = false;
     return objectName;
 
 }
@@ -152,22 +165,24 @@ bool isTargetObject(std::string name) //check if the given name is in the list o
 void orientForPickup()
 {
     //move arm to the starting position
-    float armPose[5][7] = {{0.141, 0.021, 0.197, 0.044, 0.063, 0.817, 0.572} //starting pose 
-                           {0.121, -0.102, 0.197, 0.069, 0.034, 0.436, 0.897}
-                           {0.043, -0.149, 0.197, 0.077, 0.007, 0.087, 0.993}
-                           {-0.058, -0.124, 0.197, 0.073, -0.025, -0.326, 0.942}
+    float armPose[5][7] = {{0.141, 0.021, 0.197, 0.044, 0.063, 0.817, 0.572}, //starting pose 
+                           {0.121, -0.102, 0.197, 0.069, 0.034, 0.436, 0.897},
+                           {0.043, -0.149, 0.197, 0.077, 0.007, 0.087, 0.993},
+                           {-0.058, -0.124, 0.197, 0.073, -0.025, -0.326, 0.942},
                            {-0.1, 0.021, 0.197, 0.044, -0.063, -0.817, 0.572}};
 
-    armController.moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5], armPose[0][6]);
-    armController.openGripper();
+    armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5], armPose[0][6]);
+    armController->openGripper();
+
+    std::string detectedClass;
 
     for (int i=1; i<5; i++){    
         //object detection using the wrist camera and determine and save class
-        std::string detectedClass = yoloDetector->getObjectName("Wrist", true);
-        RCLCPP_INFO(note->get_logger(), "Object not detected in wrist camera, adjusting arm pose");
+        std::string detectedClass = yoloDetector->getObjectName(CameraSource::WRIST, true);
+        RCLCPP_INFO(node->get_logger(), "Object not detected in wrist camera, adjusting arm pose");
                 
         if (!isTargetObject(detectedClass)){ //if we don't see anything and we haven't checked everywhere, update pose
-            armController.moveToCartesianPose(armPose[i][0], armPose[1], armPose[2], armPose[3], armPose[4], armPose[5], armPose[6]); 
+            armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5], armPose[i][6]); 
         }
         else break;
     }
@@ -175,47 +190,48 @@ void orientForPickup()
     //calculate or save the pose the arm needs to go to for object pickup
     //check what type of object it is and adjust the arm pose accordingly if needed
     //update this section based on how we need to adjust the arm pose based on the object class
-    if (detectedClass == "bottle"){
-        startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
-    }
-    else if (detectedCLass =="") {
-    
-    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
 
-    }
-    else if (detectedCLass =="") {
+    // if (detectedClass == "bottle"){
+    //     startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    // }
+    // else if (detectedClass =="") {
     
-    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    // startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+
+    // }
+    // else if (detectedClass =="") {
     
-    }
-    else if (detectedCLass =="") {
+    // startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
     
-    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    // }
+    // else if (detectedClass =="") {
     
-    }
-    else if (detectedCLass =="") {
+    // startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
     
-    startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    // }
+    // else if (detectedClass =="") {
     
-    }
+    // startupArmPose = {0.0, 0.0, 0.0, 0.0, 0.0}; //need to change this pose based on how we calculate position?
+    
+    // }
     
     
-//}
+}
 
 void grab() {
 
-    RCLCPP_INFO(note->get_logger(), "Moving arm to grab unknown object");
-    armController.moveToCartesianPose(-0.084, 0.015, 0.177, 0.042, -0.060, -0.817, 0.572); //need to change this pose pending simulation testing
+    RCLCPP_INFO(node->get_logger(), "Moving arm to grab unknown object");
+    armController->moveToCartesianPose(-0.084, 0.015, 0.177, 0.042, -0.060, -0.817, 0.572); //need to change this pose pending simulation testing
 
     //close the gripper to grab the object
-    RCLCPP_INFO(note->get_logger(), "Grabbing the unknown object");
-    armController.closeGripper();
+    RCLCPP_INFO(node->get_logger(), "Grabbing the unknown object");
+    armController->closeGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
     //move the arm to location 2 to pick it up and orient to later drop it in
-    RCLCPP_INFO(note->get_logger(), "Moving arm to position for wrist camera object detection");
+    RCLCPP_INFO(node->get_logger(), "Moving arm to position for wrist camera object detection");
     //change the line below to adjust specifically what coordinates it is that we need to change
-    armController.moveToCartesianPose(0.021, -0.099, 0.26, -0.787, -0.000, -0.000, 0.617); //need to change this pose pending simulation testing
+    armController->moveToCartesianPose(0.021, -0.099, 0.26, -0.787, -0.000, -0.000, 0.617); //need to change this pose pending simulation testing
 
 }
 
@@ -223,20 +239,20 @@ void grab() {
 
 //     //move the arm to location 3 - above the box
 //     RCLCPP_INFO(node->get_logger(), "Moving arm to position above box");
-//     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+//     armController->moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
 
 //     //move the arm to location 4 - drop object into box
 //     RCLCPP_INFO(node->get_logger(), "Moving arm to drop object into box");
-//     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+//     armController->moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
 
 //     //open gripper to drop object into box
 //     RCLCPP_INFO(node->get_logger(), "Releasing object into box");
-//     armController.openGripper();
+//     armController->openGripper();
 //     std::this_thread::sleep_for(std::chrono::seconds(2));
 
 //     //move the arm back up to location 3
 //     RCLCPP_INFO(node->get_logger(), "Moving arm back up after dropping object into box");
-//     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
+//     armController->moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
 
 //     shouldPutInBin = false;
 // }*/
@@ -260,11 +276,11 @@ void putInBin()
     if (!tagPose.has_value()) {
         RCLCPP_WARN(node->get_logger(),
             "putInBin: no AprilTag visible — dropping at fallback pose");
-        armController.moveToCartesianPose(
+        armController->moveToCartesianPose(
             0.300, 0.000, 0.400, -0.471, -0.557, 0.564, -0.387); // may need to be changed experimentally
-        armController.openGripper();
+        armController->openGripper();
         std::this_thread::sleep_for(std::chrono::seconds(2));
-        armController.moveToCartesianPose(
+        armController->moveToCartesianPose(
             0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //may need to be changed experimentally
         return;
     }
@@ -286,7 +302,7 @@ void putInBin()
         "putInBin: moving above bin at (%.3f, %.3f, %.3f)",
         target_x, target_y, target_z);
 
-    bool success = armController.moveToCartesianPose(
+    bool success = armController->moveToCartesianPose(
         target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
 
     if (!success) {
@@ -296,18 +312,18 @@ void putInBin()
     }
 
     double drop_z = target_z - 0.05;
-    armController.moveToCartesianPose(
+    armController->moveToCartesianPose(
         target_x, target_y, drop_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
 
     RCLCPP_INFO(node->get_logger(), "putInBin: releasing object");
-    armController.openGripper();
+    armController->openGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
     RCLCPP_INFO(node->get_logger(), "putInBin: retracting arm");
-    armController.moveToCartesianPose(
+    armController->moveToCartesianPose(
         target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
 
-    armController.moveToCartesianPose(
+    armController->moveToCartesianPose(
         0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
 
     RCLCPP_INFO(node->get_logger(), "putInBin: complete");
@@ -405,7 +421,11 @@ int main(int argc, char** argv) {
     //YoloInterface yoloInterface(node);
     
     //Initialize arm controller
-    ArmController armController(node); 
+    ArmController armController_address(node); 
+    armController = &armController_address;
+
+    //Initialize navigation interface
+    Navigation navigator(node);
     
     AprilTagDetector aprilDetector(node);
     tagDetector = &aprilDetector;
@@ -460,7 +480,7 @@ int main(int argc, char** argv) {
 
             box_distances[start][goal] = total_distance;;
 
-            RCLCPP_INFO(node->get_logger(), "Path %d -> %d has %ld poses", start, goal, box_distances[start][goal]);
+            RCLCPP_INFO(node->get_logger(), "Path %d -> %d has %.2f distance", start, goal, box_distances[start][goal]);        
         }
     }
 
@@ -537,12 +557,14 @@ int main(int argc, char** argv) {
     double start_y = robotPose.y;
     double start_phi = robotPose.phi;
     std::string objectName = "";
-    std::dictionary<std::string, std::array<double, 3>> boxItemCoordinates;
+    std::map<std::string, std::array<double, 3>> boxItemCoordinates;
     boxItemCoordinates["waterbottle"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["plant"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["motorcycle"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["piggybank"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["coffee_cup"] = {0.0, 0.0, 0.0};
+
+    double goal_x, goal_y, goal_phi;
 
     // create array for saving location of each ITEM associated with each box
     std::vector<std::array<double,3>> item_locations;
@@ -556,39 +578,40 @@ int main(int argc, char** argv) {
         secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
 
         /***YOUR CODE HERE***/
-        yoloDetectionOutput("wrist", secondsElapsed);
+        //yoloDetectionOutput("wrist", secondsElapsed);
 
         //Enter routine based on conditions
         //startup (pickup and detect our object
         if(startup) {
-        objectName = startupArm();
+            //objectName = startupArm();
+            startup = false;
         }
-        }
-        else if (currentBoxIndex < full_route.size() - 1 && !arrivedAtGoal && !objectFound) 
+        
+        else if (currentBoxIndex < static_cast<int>(full_route.size()) - 1 && !arrivedAtGoal && !objectFound) 
         { // check if there are more boxes to navigate to and if we are not currently in the process of putting a box in the bin`
             //navigate to box
             int goal_node = full_route[currentBoxIndex + 1];
 
-        //     // determine final coordinates to navigate to (robot or box)
-        //     double goal_x, goal_y, goal_phi;
-        //     if (goal_node == 0) {
-        //         goal_x = start_x;
-        //         goal_y = start_y;
-        //         goal_phi = start_phi;
-        //     } else {
-        //         goal_x = box_locations[goal_node - 1][0];
-        //         goal_y = box_locations[goal_node - 1][1];
-        //         goal_phi = box_locations[goal_node - 1][2]; // depending on how the goal phi is set, may have to adjust this by 180
-        //     }
+            // determine final coordinates to navigate to (robot or box)
+            goal_x = box_locations[goal_node - 1][0];
+            goal_y = box_locations[goal_node - 1][1];
+            goal_phi = box_locations[goal_node - 1][2];
+
+            if (goal_node == 0) {
+                goal_x = start_x;
+                goal_y = start_y;
+                goal_phi = start_phi;
+            } 
 
             RCLCPP_INFO(node->get_logger(), "Navigating to node %d at (%.2f, %.2f, %.2f)", goal_node, goal_x, goal_y, goal_phi);
-            arrivedAtGoal = moveToGoal(goal_x, goal_y, goal_phi); // returns true when robot reaches goal, false if navigation failed
+            arrivedAtGoal = navigator.moveToGoal(goal_x, goal_y, goal_phi); // returns true when robot reaches goal, false if navigation failed
+            RCLCPP_INFO(node->get_logger(), "Arrived at goal: %s", arrivedAtGoal ? "true" : "false");
             currentBoxIndex++;
         }
         // //added the apriltag bits, replaced the old code for state 3 and 4
         else if (arrivedAtGoal && !objectFound && currentBoxIndex < (int)full_route.size() - 1) 
         {  
-            if (aprilTagDetected()) // checks if april tag is detected
+            if (aprilTagDetected(secondsElapsed)) // checks if april tag is detected
             {
                 RCLCPP_INFO(node->get_logger(),
                     "Bin AprilTag confirmed — preparing to drop object");
@@ -601,6 +624,11 @@ int main(int argc, char** argv) {
                         boxItemCoordinates[detected] = coords;
                         RCLCPP_INFO(node->get_logger(), "Updated coordinates for %s: (%.2f, %.2f, %.2f)", detected.c_str(), coords[0], coords[1], coords[2]);
                         if (detected == objectName) { objectFound = true; }
+                    }
+                    else {
+                        std::array<double, 3> coords = {goal_x, goal_y, goal_phi};
+                        boxItemCoordinates[detected] = coords;
+                        RCLCPP_INFO(node->get_logger(), "Detected object %s not in boxItemCoordinates list, but saving coordinates (%.2f, %.2f, %.2f) for future reference", detected.c_str(), coords[0], coords[1], coords[2]);
                     }
                 }
 
@@ -616,7 +644,7 @@ int main(int argc, char** argv) {
         }
         else if (objectFound) {
              putInBin();
-             itemDetected = false;
+             objectFound = false;
         }
 
         // else {continue;}
