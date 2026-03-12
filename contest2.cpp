@@ -32,28 +32,16 @@ The compiler needs to see these before main() calls them inside the while loop.*
 //std::optional<geometry_msgs::msg::Pose> getBinTagPose();
 //void yoloDetectionOutput(std::string cameraName, float secondsElapsed);
 
-<<<<<<< HEAD
-void yoloDetectionOutput(std::string cameraName, float secondsElapsed)
-=======
 std::string yoloDetectionOutput(std::string cameraName, float secondsElapsed, bool saveImage = false)
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 {
     static uint64_t lastYoloTime = 0;
     if (secondsElapsed >= lastYoloTime + 2) {
         lastYoloTime = secondsElapsed;
-<<<<<<< HEAD
-        std::string detected = yoloDetector->getObjectName(CameraSource::OAKD);
-
-        RCLCPP_INFO(node->get_logger(), "--- YOLO Detection (OAK-D Camera) ---");
-        if (cameraName == "wrist") {
-            detected = yoloDetector->getObjectName(CameraSource::WRIST);
-=======
         std::string detected = yoloDetector->getObjectName(CameraSource::OAKD, saveImage);
 
         RCLCPP_INFO(node->get_logger(), "--- YOLO Detection (OAK-D Camera) ---");
         if (cameraName == "wrist") {
             detected = yoloDetector->getObjectName(CameraSource::WRIST, saveImage);
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
         }
 
         
@@ -65,11 +53,7 @@ std::string yoloDetectionOutput(std::string cameraName, float secondsElapsed, bo
         RCLCPP_INFO(node->get_logger(), "No object detected");
         }
     }
-<<<<<<< HEAD
-    return;
-=======
     return detected;
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 }
 
 
@@ -129,7 +113,6 @@ std::optional<geometry_msgs::msg::Pose> getBinTagPose()
     return std::nullopt;
 }
 
-<<<<<<< HEAD
 std::string startupArm()
 {
     //bring the arm to a start position, orienting the wrist camera downwards towards the object of interest
@@ -149,30 +132,9 @@ std::string startupArm()
 
     startup = false;
     return objectName;
-=======
-// std::string startupArm()
-// {
-//     //bring the arm to a start position, orienting the wrist camera downwards towards the object of interest
-//     RCLCPP_INFO(node->get_logger(), "orienting arm for pickup");
-//     orientForPickup();
 
-//     //call a function that captures an image from the wrist camera/adjust until object is detected and arm is above
-//     RCLCPP_INFO(node->get_logger(), "detecting unknown object");
-//     //add that in here
-        //std::string objectName = yoloDetector->getObjectName(CameraSource::WRIST);
-        //float confidence = yoloDetector->getConfidence();
-        //if (confidence > 0.5) {}
+}
 
-//     //call a function that moves the arm to the location of the object
-//     RCLCPP_INFO(node->get_logger(), "grabbing object");
-//     grab();
-
-//     startup = false;
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
-
-// }
-
-<<<<<<< HEAD
 bool isTargetObject(std::string name) //check if the given name is in the list of objects of interest
 {
     if (name == "bottle" ||
@@ -209,48 +171,6 @@ void orientForPickup()
         }
         else break;
     }
-=======
-// void orientForPickup()
-// {
-//     bool checkedLeft = false;
-//     bool checkedRight = false;
-//     bool checkedFront = false;
-
-//     //move arm to the starting position
-//      armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
-
-//      //object detection using the wrist camera and determine and save class
-//     captureAndDetect("Wrist", true);
-//     detectedClass = latest_class_name_;
-
-//     //evaluate if the object is detected in the wrist camera, if not adjust the arm pose     
-//         while(detectedClass == '0') {
-//             RCLCPP_INFO(note->get_logger(), "Object not detected in wrist camera, adjusting arm pose");
-//             //add in code to adjust the arm pose here, maybe a for loop that iterates through a set of poses until the object is detected?
-
-//             if (detectedClass == '0' && !checkedLeft) {
-//                 //adjust arm pose to the left
-//                 RCLCPP_INFO(note->get_logger(), "Object not detected, adjusting arm pose to the left");
-//                 //add in code to adjust the arm pose to the left here
-//                 checkedLeft = true;
-//             }
-//             else if (detectedClass == '0' && !checkedRight) {
-//                 //adjust arm pose to the right
-//                 RCLCPP_INFO(note->get_logger(), "Object not detected, adjusting arm pose to the right");
-//                 //add in code to adjust the arm pose to the right here
-//                 checkedRight = true;
-//             }
-//             else if (detectedClass == '0' && !checkedFront) {
-//                 //adjust arm pose forward
-//                 RCLCPP_INFO(note->get_logger(), "Object not detected, adjusting arm pose forward");
-//                 //add in code to adjust the arm pose forward here
-//                 checkedFront = true;
-//             }
-
-//             captureAndDetect("Wrist", true);
-//             detectedClass = latest_class_name_;
-//         }
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 
     //calculate or save the pose the arm needs to go to for object pickup
     //check what type of object it is and adjust the arm pose accordingly if needed
@@ -282,46 +202,24 @@ void orientForPickup()
     
 //}
 
-/*// void grab() {
+void grab() {
 
-<<<<<<< HEAD
     RCLCPP_INFO(note->get_logger(), "Moving arm to grab unknown object");
     armController.moveToCartesianPose(-0.084, 0.015, 0.177, 0.042, -0.060, -0.817, 0.572); //need to change this pose pending simulation testing
-=======
-//     //move the arm to location 1 - pickup the object
-//     armController.openGripper();
-//     std::this_thread::sleep_for(std::chrono::seconds(2));
 
-//     RCLCPP_INFO(note->get_logger(), "Moving arm to grab unknown object");
-//     //doing the movement in two steps, once to hover above the object and the second to get close enough to grasp
-//     armController.moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2], startupArmPose[3], startupArmPose[4], startupArmPose[5], startupArmPose[6]); //need to change this pose pending simulation testing
-//     armController.moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2], startupArmPose[3], startupArmPose[4], startupArmPose[5], startupArmPose[6]); //need to change this pose pending simulation testing
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
-    
-//     //close the gripper to grab the object
-//     RCLCPP_INFO(note->get_logger(), "Grabbing the unknown object");
-//     armController.closeGripper();
-//     std::this_thread::sleep_for(std::chrono::seconds(2));
-    
-<<<<<<< HEAD
+    //close the gripper to grab the object
+    RCLCPP_INFO(note->get_logger(), "Grabbing the unknown object");
+    armController.closeGripper();
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
     //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(note->get_logger(), "Moving arm to position for wrist camera object detection");
     //change the line below to adjust specifically what coordinates it is that we need to change
     armController.moveToCartesianPose(0.021, -0.099, 0.26, -0.787, -0.000, -0.000, 0.617); //need to change this pose pending simulation testing
-=======
-//     //move the arm to location 2 to pick it up and orient to later drop it in
-//     RCLCPP_INFO(note->get_logger(), "Moving arm to position for wrist camera object detection");
-//     //change the line below to adjust specifically what coordinates it is that we need to change
-//     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 
-// }*/
+}
 
-<<<<<<< HEAD
-// void putInBin(){
-=======
 /*// void putInBin(){
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 
 //     //move the arm to location 3 - above the box
 //     RCLCPP_INFO(node->get_logger(), "Moving arm to position above box");
@@ -341,11 +239,7 @@ void orientForPickup()
 //     armController.moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387); //need to change this pose pending simulation testing
 
 //     shouldPutInBin = false;
-<<<<<<< HEAD
-// }
-=======
 // }*/
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 
 // putInBin() rewrittem
 //          1. Calls getBinTagPose() for the live 3D bin tag position.
@@ -357,73 +251,6 @@ void orientForPickup()
 //          4. Falls back to hardcoded coords if tag is not visible.
 //          5. Sets shouldPutInBin = false when done so the state
 //             machine moves on to the next box.
-<<<<<<< HEAD
-// void putInBin()
-// {
-//     RCLCPP_INFO(node->get_logger(), "putInBin: locating bin via AprilTag...");
-
-//     auto tagPose = getBinTagPose();
-
-//     if (!tagPose.has_value()) {
-//         RCLCPP_WARN(node->get_logger(),
-//             "putInBin: no AprilTag visible — dropping at fallback pose");
-//         armController.moveToCartesianPose(
-//             0.300, 0.000, 0.400, -0.471, -0.557, 0.564, -0.387);
-//         armController.openGripper();
-//         std::this_thread::sleep_for(std::chrono::seconds(2));
-//         armController.moveToCartesianPose(
-//             0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
-//         shouldPutInBin = false;
-//         return;
-//     }
-
-//     constexpr double HOVER_Z      = 0.15; // metres above tag — tune to your bin rim height
-//     constexpr double BIN_X_OFFSET = 0.05; // metres forward into bin past the tag face
-
-//     double target_x = tagPose->position.x + BIN_X_OFFSET;
-//     double target_y = tagPose->position.y;
-//     double target_z = tagPose->position.z + HOVER_Z;
-
-//     // same gripper quaternion used throughout the file
-//     constexpr double ORI_X = -0.471;
-//     constexpr double ORI_Y = -0.557;
-//     constexpr double ORI_Z =  0.564;
-//     constexpr double ORI_W = -0.387;
-
-//     RCLCPP_INFO(node->get_logger(),
-//         "putInBin: moving above bin at (%.3f, %.3f, %.3f)",
-//         target_x, target_y, target_z);
-
-//     bool success = armController.moveToCartesianPose(
-//         target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
-
-//     if (!success) {
-//         RCLCPP_ERROR(node->get_logger(),
-//             "putInBin: hover pose unreachable — aborting drop");
-//         shouldPutInBin = false;
-//         return;
-//     }
-
-//     double drop_z = target_z - 0.05;
-//     armController.moveToCartesianPose(
-//         target_x, target_y, drop_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
-
-//     RCLCPP_INFO(node->get_logger(), "putInBin: releasing object");
-//     armController.openGripper();
-//     std::this_thread::sleep_for(std::chrono::seconds(2));
-
-//     RCLCPP_INFO(node->get_logger(), "putInBin: retracting arm");
-//     armController.moveToCartesianPose(
-//         target_x, target_y, target_z, ORI_X, ORI_Y, ORI_Z, ORI_W);
-
-//     armController.moveToCartesianPose(
-//         0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
-
-//     RCLCPP_INFO(node->get_logger(), "putInBin: complete");
-//     shouldPutInBin = false;
-// }
-
-=======
 void putInBin()
 {
     RCLCPP_INFO(node->get_logger(), "putInBin: locating bin via AprilTag...");
@@ -485,7 +312,6 @@ void putInBin()
 
     RCLCPP_INFO(node->get_logger(), "putInBin: complete");
 }
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 
 
 std::vector<int> solveTSP(const std::vector<std::vector<double>> &distances, std::vector<int> order)
@@ -711,15 +537,12 @@ int main(int argc, char** argv) {
     double start_y = robotPose.y;
     double start_phi = robotPose.phi;
     std::string objectName = "";
-<<<<<<< HEAD
-=======
     std::dictionary<std::string, std::array<double, 3>> boxItemCoordinates;
     boxItemCoordinates["waterbottle"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["plant"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["motorcycle"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["piggybank"] = {0.0, 0.0, 0.0};
     boxItemCoordinates["coffee_cup"] = {0.0, 0.0, 0.0};
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 
     // create array for saving location of each ITEM associated with each box
     std::vector<std::array<double,3>> item_locations;
@@ -738,22 +561,13 @@ int main(int argc, char** argv) {
         //Enter routine based on conditions
         //startup (pickup and detect our object
         if(startup) {
-<<<<<<< HEAD
         objectName = startupArm();
         }
-        // else if (currentBoxIndex < full_route.size() - 1 && !arrivedAtGoal && !itemDetected) { // check if there are more boxes to navigate to and if we are not currently in the process of putting a box in the bin`
-        //     //navigate to box
-        //     int goal_node = full_route[currentBoxIndex + 1];
-=======
-        //     objectName =startupArm(); // TO DO: find object (use rotation of arm and wrist camera to search) and grab it (use Yolo coordinates)
-        //      
-                // TO DO: return arms to neutral position facing forwards to be able to use wrist camera in future
         }
         else if (currentBoxIndex < full_route.size() - 1 && !arrivedAtGoal && !objectFound) 
         { // check if there are more boxes to navigate to and if we are not currently in the process of putting a box in the bin`
             //navigate to box
             int goal_node = full_route[currentBoxIndex + 1];
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 
         //     // determine final coordinates to navigate to (robot or box)
         //     double goal_x, goal_y, goal_phi;
@@ -767,42 +581,6 @@ int main(int argc, char** argv) {
         //         goal_phi = box_locations[goal_node - 1][2]; // depending on how the goal phi is set, may have to adjust this by 180
         //     }
 
-<<<<<<< HEAD
-        //     RCLCPP_INFO(node->get_logger(), "Navigating to node %d at (%.2f, %.2f, %.2f)", goal_node, goal_x, goal_y, goal_phi);
-        //     arrivedAtGoal = moveToGoal(goal_x, goal_y, goal_phi); // returns true when robot reaches goal, false if navigation failed
-        //     currentBoxIndex++;
-        // }
-        // //added the apriltag bits, replaced the old code for state 3 and 4
-        // else if (arrivedAtGoal && !itemDetected && currentBoxIndex < (int)full_route.size() - 1) 
-        // {
-                
-        //     if (aprilTagDetected()) 
-        //     {
-        //         RCLCPP_INFO(node->get_logger(),
-        //             "Bin AprilTag confirmed — preparing to drop object");
-        //         // if tag is detected, use OAKD camera to take picture of item and determine if it is the correct item using Yolo
-        //         itemDetected = true;
-//
-        //
-        //         arrivedAtGoal  = false;
-        //     }
-        //     else 
-        //     {
-        //         // if couldn't detect tag, go to next box
-        //         RCLCPP_INFO(node->get_logger(), "AprilTag not detected at goal pose, trying to adjust position to find tag...");
-        //         itemDetected = false;
-        //         arrivedAtGoal = false;
-        //     }
-        // }
-        // else if (itemDetected) {
-        //     // Use Yolo to determine if the object at this box is the one we picked up - if it is, put it in the bin, if not, skip to the next box
-        //     // if yolo detects object, set objectFound to true, if not, set it to false
-               //yoloDetectionOutput("oakd", secondsElapsed);
-        //     // if objectFound == true:
-        //     putInBin();
-        //     itemDetected = false;
-        // }
-=======
             RCLCPP_INFO(node->get_logger(), "Navigating to node %d at (%.2f, %.2f, %.2f)", goal_node, goal_x, goal_y, goal_phi);
             arrivedAtGoal = moveToGoal(goal_x, goal_y, goal_phi); // returns true when robot reaches goal, false if navigation failed
             currentBoxIndex++;
@@ -840,7 +618,6 @@ int main(int argc, char** argv) {
              putInBin();
              itemDetected = false;
         }
->>>>>>> 7eea7130c2f71f688d370163e5f2fa796930cf00
 
         // else {continue;}
 
