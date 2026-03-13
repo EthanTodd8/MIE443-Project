@@ -13,7 +13,6 @@
 #include <map>
 #include <array>
 #include <string>
-#include <iostream>
 
 #include <optional>      /* std::optional lets getBinTagPose() return either a real Pose
                           or "nothing found" without using raw pointers */ 
@@ -166,18 +165,15 @@ bool isTargetObject(std::string name) //check if the given name is in the list o
 
 void orientForPickup()
 {
-    
-    float armPose[3][7] = {{0.141, 0.021, 0.197, 0.044, 0.063, 0.817, 0.572}, //starting pose and list of poses to adjust to
-                           {0.121, -0.102, 0.197, 0.069, 0.034, 0.436, 0.897},
-                           {0.043, -0.149, 0.197, 0.077, 0.007, 0.087, 0.993},
-                           };
-    //these will need to be relative to the starting coordinate of the object?
+    float zOffset = 0.2; // vertical height of 20cm above the object
+    float rotation = 0.05; //distance to check sideways 
+
+    float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658}
+                                {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, startupObjectPose[2] + zOffset,-0.006, -0.000, 1.658 }
+                                {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658  }};
 
     //move arm to starting pose
     armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5], armPose[0][6]);
-
-    //open gripper
-    armController->openGripper();
 
     for (int i=1; i<4; i++){    
         //object detection using the wrist camera and determine and save class
@@ -185,7 +181,7 @@ void orientForPickup()
         float confidence = yoloDetector->getConfidence();
 
         if (!isTargetObject(detectedClass)&&confidence > 0.5){ //if we don't see anything and the confidence is too low
-            armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5], armPose[i][6]); 
+            armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5]); 
         }
         else break;
     }
@@ -193,25 +189,30 @@ void orientForPickup()
 
 void grab() {
 
+    //open gripper
+    armController->openGripper();
+
     RCLCPP_INFO(node->get_logger(), "Moving arm to grab unknown object");
 
     //check what type of object it is and adjust the arm pose accordingly if needed
 
     if (detectedClass == "waterbottle"){
-    //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], -0.006, -0.000, 1.658);
 
     }
     else if (detectedClass =="plant") {
-    //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
-    
-    }
-    else if (detectedClass =="motorcycle") {
-    //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], -0.006, -0.000, 1.658);    
 
     }
-    else if (detectedClass =="clock") {
-    //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
+    else if (detectedClass =="motorcycle") {
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], -0.006, -0.000, 1.658);
     }
+    else if (detectedClass =="clock") {
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], -0.006, -0.000, 1.658);    }
     else if (detectedClass =="coffee_cup") {
     //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
     
@@ -222,7 +223,7 @@ void grab() {
 
     //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(node->get_logger(), "Moving arm to position to later drop in bin");
-    armController->moveToCartesianPose(0.021, -0.099, 0.26, -0.787, -0.000, -0.000, 0.617); //need to change this pose pending simulation testing
+    armController->moveToCartesianPose(0.021, -0.011, 0.274, -1.601, 0.001, -0.001); //need to change this pose pending simulation testing
 
 }
 
@@ -284,10 +285,10 @@ void putInBin()
     double target_z = tagPose->position.z + HOVER_Z;
 
     // same gripper quaternion used throughout the file
-    constexpr double ORI_X = -0.471;
-    constexpr double ORI_Y = -0.557;
-    constexpr double ORI_Z =  0.564;
-    constexpr double ORI_W = -0.387;
+    constexpr double ORI_X = -0.657;
+    constexpr double ORI_Y = 0.000;
+    constexpr double ORI_Z =  -0.000;
+    constexpr double ORI_W = 0.754;
 
     RCLCPP_INFO(node->get_logger(),
         "putInBin: moving above bin at (%.3f, %.3f, %.3f)",
@@ -534,7 +535,7 @@ int main(int argc, char** argv) {
     float startupObjectPose[7];
     bool gripSuccess = false;
     ///initialize the arm pose for locating and grabbing the object as a 'neutral' pose
-    startupObjectPose = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}; // may need to be changed pending simulation testing
+    startupObjectPose = {0, 0.15, 0.1}; // may need to be changed pending simulation testing
 
 
     int currentBoxIndex = 0; // index to keep track of which box we are navigating to
@@ -661,12 +662,6 @@ int main(int argc, char** argv) {
                         boxItemCoordinates[detected] = coords;
                         RCLCPP_INFO(node->get_logger(), "Detected object %s not in boxItemCoordinates list, but saving coordinates (%.2f, %.2f, %.2f) for future reference", detected.c_str(), coords[0], coords[1], coords[2]);
                     }
-
-                    std::ofstream outfile("boxItemCoordinates.txt");
-                    for (const auto& pair : boxItemCoordinates) {
-                        outfile << pair.first << ": " <pair.second[0] << ", " <<pair.second[1] << ", " << pair.second[2] << std::endl;
-                    }
-                    outfile.close();
                 }
 
                 arrivedAtGoal  = false;
@@ -688,7 +683,6 @@ int main(int argc, char** argv) {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-
 
     if (secondsElapsed > 300) {
         RCLCPP_WARN(node->get_logger(), "Contest time limit reached!");
