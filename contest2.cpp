@@ -171,8 +171,8 @@ bool isTargetObject(std::string name) //check if the given name is in the list o
 
 void orientForPickup()
 {
-    float zOffset = 0.2; // vertical height of 20cm above the object
-    float safeZ = startupObjectPose[2] + 0.25; // lift to safe height before any lateral move
+    float zOffset = 0.08; // vertical height of 8cm above the object
+    float safeZ = startupObjectPose[2] + 0.12; // lift to safe height before any lateral move
     float rotation = 0.05; //distance to check sideways 
 
     float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658},
@@ -201,7 +201,7 @@ void orientForPickup()
 
 void grab() {
 
-    float zOffset = 0.1;
+    float zOffset = 0.08;
 
     //open gripper
     armController->openGripper();
@@ -236,7 +236,7 @@ void grab() {
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
     //lift straight up before moving laterally to carry pose
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + 0.25, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + 0.12, -0.006, -0.000, 1.658);
 
     //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(node->get_logger(), "Moving arm to position to later drop in bin");
