@@ -171,7 +171,7 @@ bool isTargetObject(std::string name) //check if the given name is in the list o
 
 void orientForPickup()
 {
-    float zOffset = 0.2; // vertical height of 20cm above the object
+    float zOffset = 0.1; // vertical height of 10cm above the object
     float rotation = 0.05; //distance to check sideways 
 
     float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658},
@@ -195,7 +195,7 @@ void orientForPickup()
 
 void grab() {
 
-    float zOffset = 0.2;
+    float zOffset = 0.1;
 
     //open gripper
     armController->openGripper();
@@ -231,7 +231,7 @@ void grab() {
 
     //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(node->get_logger(), "Moving arm to position to later drop in bin");
-    armController->moveToCartesianPose(0.021, -0.011, 0.274, -1.601, 0.001, -0.001); //need to change this pose pending simulation testing
+    armController->moveToCartesianPose(0.021, -0.011, 0.15, -1.601, 0.001, -0.001); //need to change this pose pending simulation testing
 
 }
 
@@ -540,9 +540,9 @@ int main(int argc, char** argv) {
     bool startup = true; 
     bool armSuccess = false;
     bool gripSuccess = false;
-    startupObjectPose[0] = 0;
-    startupObjectPose[1] = 0.15;
-    startupObjectPose[2] = 0.1;
+    startupObjectPose[0] = 0.15;
+    startupObjectPose[1] = 0.0;
+    startupObjectPose[2] = 0.05;
 
     int currentBoxIndex = 0; // index to keep track of which box we are navigating to
     bool arrivedAtGoal = false; // flag to indicate if we have arrived at the current goal
