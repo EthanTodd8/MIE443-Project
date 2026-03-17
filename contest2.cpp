@@ -171,18 +171,14 @@ bool isTargetObject(std::string name) //check if the given name is in the list o
 
 void orientForPickup()
 {
-    float zOffset = 0.08; // vertical height of 8cm above the object
-    float safeZ = startupObjectPose[2] + 0.12; // lift to safe height before any lateral move
+    float scanZ = 0.20; // height to hold camera while scanning
     float rotation = 0.05; //distance to check sideways 
 
-    float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658},
-                                {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, startupObjectPose[2] + zOffset,-0.006, -0.000, 1.658 },
-                                {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658  }};
+    float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658},
+                                {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, scanZ,-0.006, -0.000, 1.658 },
+                                {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
 
-    //lift straight up to safe height before moving to starting pose
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], safeZ, -0.006, -0.000, 1.658);
-
-    //move arm to starting pose
+    //move arm to starting scan pose
     armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
 
     for (int i=1; i<3; i++){    
@@ -191,8 +187,6 @@ void orientForPickup()
         float confidence = yoloDetector->getConfidence();
 
         if (!isTargetObject(detectedClass)&&confidence > 0.5){ //if we don't see anything and the confidence is too low
-            //lift to safe height before moving laterally
-            armController->moveToCartesianPose(armPose[i-1][0], armPose[i-1][1], safeZ, armPose[i-1][3], armPose[i-1][4], armPose[i-1][5]);
             armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5]); 
         }
         else break;
@@ -201,7 +195,7 @@ void orientForPickup()
 
 void grab() {
 
-    float zOffset = 0.08;
+    float scanZ = 0.20; // same height used during scanning
 
     //open gripper
     armController->openGripper();
@@ -211,21 +205,21 @@ void grab() {
     //check what type of object it is and adjust the arm pose accordingly if needed
 
     if (detectedClass == "waterbottle"){
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658);
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], -0.006, -0.000, 1.658);
 
     }
     else if (detectedClass =="plant") {
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658);
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], -0.006, -0.000, 1.658);    
 
     }
     else if (detectedClass =="motorcycle") {
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658);
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], -0.006, -0.000, 1.658);
     }
     else if (detectedClass =="clock") {
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658);
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], -0.006, -0.000, 1.658);    }
     else if (detectedClass =="coffee_cup") {
     //armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2], startupObjectPose[3], startupObjectPose[4], startupObjectPose[5], startupObjectPose[6]);
@@ -235,8 +229,8 @@ void grab() {
     armController->closeGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
-    //lift straight up before moving laterally to carry pose
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + 0.12, -0.006, -0.000, 1.658);
+    //lift back up to scan height before moving laterally to carry pose
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658);
 
     //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(node->get_logger(), "Moving arm to position to later drop in bin");
