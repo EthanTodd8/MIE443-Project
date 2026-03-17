@@ -32,6 +32,9 @@ ArmController* armController = nullptr;
 rclcpp::Node::SharedPtr node;
 std::unique_ptr<YoloInterface> yoloDetector;
 
+std::string detectedClass = "";
+float startupObjectPose[7] = {};
+
 /*new forward declarations for the two AprilTag functions. 
 The compiler needs to see these before main() calls them inside the while loop.*/
 bool aprilTagDetected(float secondsElapsed); 
@@ -41,6 +44,7 @@ void orientForPickup();
 void grab();
 void putInBin();
 bool isTargetObject(std::string name);
+std::string startupArm();
 
 double getYawFromQuaternion(const geometry_msgs::msg::Quaternion &q)
 {
@@ -138,7 +142,7 @@ std::optional<geometry_msgs::msg::Pose> getBinTagPose()
     return std::nullopt;
 }
 
-void startupArm()
+std::string startupArm()
 {
     //bring the arm to a start position, orienting the wrist camera downwards towards the object of interest and adjust until image is detected
     RCLCPP_INFO(node->get_logger(), "orienting arm for pickup");
@@ -147,6 +151,8 @@ void startupArm()
     //call a function that moves the arm to the location of the object
     RCLCPP_INFO(node->get_logger(), "grabbing object");
     grab();
+
+    return detectedClass;
 }
 
 bool isTargetObject(std::string name) //check if the given name is in the list of objects of interest
@@ -168,14 +174,14 @@ void orientForPickup()
     float zOffset = 0.2; // vertical height of 20cm above the object
     float rotation = 0.05; //distance to check sideways 
 
-    float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658}
-                                {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, startupObjectPose[2] + zOffset,-0.006, -0.000, 1.658 }
+    float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658},
+                                {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, startupObjectPose[2] + zOffset,-0.006, -0.000, 1.658 },
                                 {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, startupObjectPose[2] + zOffset, -0.006, -0.000, 1.658  }};
 
     //move arm to starting pose
-    armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5], armPose[0][6]);
+    armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
 
-    for (int i=1; i<4; i++){    
+    for (int i=1; i<3; i++){    
         //object detection using the wrist camera and determine and save class
         detectedClass = yoloDetector->getObjectName(CameraSource::WRIST, true);
         float confidence = yoloDetector->getConfidence();
@@ -188,6 +194,8 @@ void orientForPickup()
 }
 
 void grab() {
+
+    float zOffset = 0.2;
 
     //open gripper
     armController->openGripper();
@@ -531,12 +539,10 @@ int main(int argc, char** argv) {
     //initialize variable values
     bool startup = true; 
     bool armSuccess = false;
-    char detectedClass;
-    float startupObjectPose[7];
     bool gripSuccess = false;
-    ///initialize the arm pose for locating and grabbing the object as a 'neutral' pose
-    startupObjectPose = {0, 0.15, 0.1}; // may need to be changed pending simulation testing
-
+    startupObjectPose[0] = 0;
+    startupObjectPose[1] = 0.15;
+    startupObjectPose[2] = 0.1;
 
     int currentBoxIndex = 0; // index to keep track of which box we are navigating to
     bool arrivedAtGoal = false; // flag to indicate if we have arrived at the current goal
