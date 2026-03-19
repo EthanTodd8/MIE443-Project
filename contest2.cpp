@@ -178,9 +178,11 @@ void orientForPickup()
 //                                 {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
 
     //move arm to starting scan pose
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.244, -0.075, -0.057,  0.562,  0.822);
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.170,  0.142,  0.133,  0.632,  0.751);
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.100,  0.103,  0.148,  0.778,  0.602);
+    RCLCPP_INFO(node->get_logger(), "test");
+    armController->moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.244, -0.189, -0.010, 1.200);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.170,  0.391,  0.020, 1.410);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.100,  0.361,  0.018, 1.829);
     //armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
 
     // for (int i=1; i<3; i++){    
@@ -230,30 +232,29 @@ void grab() {
     
     // }
 
-    // Phase 1: over object at scan height, offset along Y (cup is to the left)
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1] - 0.03,  scanZ,                 0.000,  0.000,  0.733,  0.681);
+    // Phase 1: over object at scan height, angled to avoid singularity
+    armController->moveToCartesianPose(startupObjectPose[0] - 0.03,  startupObjectPose[1], scanZ,                 0.0, 0.0, 0.0);
 
-    // Phase 2: intermediate descent, closing in along Y
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1] - 0.015, approachZ,            -0.037,  0.034,  0.732,  0.680);
+    // Phase 2: intermediate descent
+    armController->moveToCartesianPose(startupObjectPose[0] - 0.015, startupObjectPose[1], approachZ,             0.0, 0.1, 0.0);
 
-    // Phase 3: final descent to cup
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1],         startupObjectPose[2], -0.073,  0.068,  0.729,  0.677);
+    // Phase 3: final descent to object
+    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1], startupObjectPose[2],  0.0, 0.2, 0.0);
 
     armController->closeGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
-    // Mirror approach path on the way back up
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1] - 0.015, approachZ,            -0.037,  0.034,  0.732,  0.680);
+    // Mirror approach path on the way back up before reorienting
+    armController->moveToCartesianPose(startupObjectPose[0] - 0.015, startupObjectPose[1], approachZ,             0.0, 0.1, 0.0);
 
     //lift back up to scan height before moving laterally to carry pose
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1],         0.280,                 0.000,  0.000,  0.733,  0.681);
+    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1], 0.280,                 0.0, 0.0, 0.0);
 
     //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(node->get_logger(), "Moving arm to position to later drop in bin");
-    armController->moveToCartesianPose(0.050, -0.101, 0.260, -0.707, -0.023,  0.003,  0.707); //need to change this pose pending simulation testing
+    armController->moveToCartesianPose(0.050, -0.101, 0.260, -1.570, -0.028, 0.036); //need to change this pose pending simulation testing
 
 }
-
 
 /*// void putInBin(){
 
@@ -477,9 +478,9 @@ int main(int argc, char** argv) {
     for (int i = 1; i < num_nodes; i++)
     {
         double buffer = 0.5; // 20 cm buffer in front of box
-        nodes[i][0] -= buffer * cos(nodes[i][2]);
-        nodes[i][1] -= buffer * sin(nodes[i][2]);
-        //nodes[i][2] = 2*M_PI - nodes[i][2]; // adjust robot orientation to face the box
+        nodes[i][0] -= buffer * cos(nodes[i][2] + M_PI);
+        nodes[i][1] -= buffer * sin(nodes[i][2] + M_PI);
+        nodes[i][2] = 2*M_PI - nodes[i][2]; // adjust robot orientation to face the box
     }
     
     // iterate though nodes and compute path from each node to each other node using ComputePathToPose action - Isabelle
@@ -753,5 +754,3 @@ int main(int argc, char** argv) {
 
 
 }
-
-
