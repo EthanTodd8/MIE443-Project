@@ -178,32 +178,6 @@ void orientForPickup()
 //                                 {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
 
     //move arm to starting scan pose
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.244, -0.189, -0.010, 1.200);
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.170,  0.391,  0.020, 1.410);
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.100,  0.361,  0.018, 1.829);
-    //armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
-
-    // for (int i=1; i<3; i++){    
-    //     //object detection using the wrist camera and determine and save class
-    //     detectedClass = yoloDetector->getObjectName(CameraSource::WRIST, true);
-    //     float confidence = yoloDetector->getConfidence();
-
-    //     if (!isTargetObject(detectedClass)&&confidence > 0.5){ //if we don't see anything and the confidence is too low
-    //         armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5]); 
-    //     }
-    //     else break;
-    // }
-}
-
-void orientForPickup()
-{
-    float scanZ = 0.20; // height to hold camera while scanning
-
-//    // float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658},
-//                                 {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, scanZ,-0.006, -0.000, 1.658 },
-//                                 {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
-
-    //move arm to starting scan pose
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.244, -0.075, -0.057,  0.562,  0.822);
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.170,  0.142,  0.133,  0.632,  0.751);
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.100,  0.103,  0.148,  0.778,  0.602);
