@@ -23,6 +23,7 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp" // added for tf2::toMsg conversion
 
 //new AprilTag globals
+//this was something that i needed to add in to make it run last lab session is this ok??
 AprilTagDetector* tagDetector   = nullptr;
 std::vector<int>  candidateTags = {0, 1, 2, 3, 4};
 
@@ -172,25 +173,27 @@ bool isTargetObject(std::string name) //check if the given name is in the list o
 void orientForPickup()
 {
     float scanZ = 0.20; // height to hold camera while scanning
-    float rotation = 0.05; //distance to check sideways 
 
-    float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658},
-                                {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, scanZ,-0.006, -0.000, 1.658 },
-                                {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
+//    // float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658},
+//                                 {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, scanZ,-0.006, -0.000, 1.658 },
+//                                 {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
 
     //move arm to starting scan pose
-    armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
+    armController->moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2]+0.244, -0.189, -0.010, 1.200);
+     armController->moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2]+0.170, 0.391,0.020,1.410);
+     armController->moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2]+0.100, 0.361,0.018,1.829);
+    //armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
 
-    for (int i=1; i<3; i++){    
-        //object detection using the wrist camera and determine and save class
-        detectedClass = yoloDetector->getObjectName(CameraSource::WRIST, true);
-        float confidence = yoloDetector->getConfidence();
+    // for (int i=1; i<3; i++){    
+    //     //object detection using the wrist camera and determine and save class
+    //     detectedClass = yoloDetector->getObjectName(CameraSource::WRIST, true);
+    //     float confidence = yoloDetector->getConfidence();
 
-        if (!isTargetObject(detectedClass)&&confidence > 0.5){ //if we don't see anything and the confidence is too low
-            armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5]); 
-        }
-        else break;
-    }
+    //     if (!isTargetObject(detectedClass)&&confidence > 0.5){ //if we don't see anything and the confidence is too low
+    //         armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5]); 
+    //     }
+    //     else break;
+    // }
 }
 
 void grab() {
@@ -230,11 +233,11 @@ void grab() {
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
     //lift back up to scan height before moving laterally to carry pose
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], 0.349, -1.658, -0.046, 0.001);
 
     //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(node->get_logger(), "Moving arm to position to later drop in bin");
-    armController->moveToCartesianPose(0.021, -0.011, 0.15, -1.601, 0.001, -0.001); //need to change this pose pending simulation testing
+    armController->moveToCartesianPose(0.021, -0.101, 0.245, -2.467, -0.028, 0.036); //need to change this pose pending simulation testing
 
 }
 
