@@ -177,12 +177,10 @@ void orientForPickup()
 //                                 {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, scanZ,-0.006, -0.000, 1.658 },
 //                                 {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
 
-    //move arm to starting scan pose
-    RCLCPP_INFO(node->get_logger(), "test");
-    armController->moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557, 0.564, -0.387);
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.244, -0.189, -0.010, 1.200);
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.170,  0.391,  0.020, 1.410);
-    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.100,  0.361,  0.018, 1.829);
+    //move arm to starting scan pose — using confirmed reachable orientation as base
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.244, -0.471, -0.557,  0.564, -0.387);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.170, -0.471, -0.557,  0.564, -0.387);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.100, -0.471, -0.557,  0.564, -0.387);
     //armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
 
     // for (int i=1; i<3; i++){    
@@ -232,27 +230,30 @@ void grab() {
     
     // }
 
-    // Phase 1: over object at scan height, angled to avoid singularity
-    armController->moveToCartesianPose(startupObjectPose[0] - 0.03,  startupObjectPose[1], scanZ,                 0.0, 0.0, 0.0);
+    // Phase 1: start from near the confirmed working pose, same orientation throughout
+    armController->moveToCartesianPose(0.043,                        0.199,                       0.313,                 -0.471, -0.557,  0.564, -0.387);
 
-    // Phase 2: intermediate descent
-    armController->moveToCartesianPose(startupObjectPose[0] - 0.015, startupObjectPose[1], approachZ,             0.0, 0.1, 0.0);
+    // Phase 2: shift toward object XY while descending to scan height
+    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1] + 0.05, scanZ,                 -0.471, -0.557,  0.564, -0.387);
 
-    // Phase 3: final descent to object
-    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1], startupObjectPose[2],  0.0, 0.2, 0.0);
+    // Phase 3: intermediate descent
+    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1] + 0.02, approachZ,             -0.471, -0.557,  0.564, -0.387);
+
+    // Phase 4: final descent to cup
+    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1],        startupObjectPose[2],  -0.471, -0.557,  0.564, -0.387);
 
     armController->closeGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
-    // Mirror approach path on the way back up before reorienting
-    armController->moveToCartesianPose(startupObjectPose[0] - 0.015, startupObjectPose[1], approachZ,             0.0, 0.1, 0.0);
+    // Mirror approach path back up
+    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1] + 0.02, approachZ,             -0.471, -0.557,  0.564, -0.387);
 
-    //lift back up to scan height before moving laterally to carry pose
-    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1], 0.280,                 0.0, 0.0, 0.0);
+    //lift back up before moving to carry pose
+    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1],        0.280,                 -0.471, -0.557,  0.564, -0.387);
 
     //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(node->get_logger(), "Moving arm to position to later drop in bin");
-    armController->moveToCartesianPose(0.050, -0.101, 0.260, -1.570, -0.028, 0.036); //need to change this pose pending simulation testing
+    armController->moveToCartesianPose(0.043, 0.199, 0.313, -0.471, -0.557,  0.564, -0.387); //need to change this pose pending simulation testing
 
 }
 
