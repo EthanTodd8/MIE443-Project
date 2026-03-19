@@ -23,7 +23,6 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp" // added for tf2::toMsg conversion
 
 //new AprilTag globals
-//this was something that i needed to add in to make it run last lab session is this ok??
 AprilTagDetector* tagDetector   = nullptr;
 std::vector<int>  candidateTags = {0, 1, 2, 3, 4};
 
@@ -170,6 +169,7 @@ bool isTargetObject(std::string name) //check if the given name is in the list o
     return false;
 }
 
+
 void orientForPickup()
 {
     float scanZ = 0.20; // height to hold camera while scanning
@@ -179,9 +179,9 @@ void orientForPickup()
 //                                 {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
 
     //move arm to starting scan pose
-    armController->moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2]+0.244, -0.189, -0.010, 1.200);
-     armController->moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2]+0.170, 0.391,0.020,1.410);
-     armController->moveToCartesianPose(startupArmPose[0], startupArmPose[1], startupArmPose[2]+0.100, 0.361,0.018,1.829);
+     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.244, -0.189, -0.010, 1.200);
+     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.170, 0.391,0.020,1.410);
+     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.100, 0.361,0.018,1.829);
     //armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
 
     // for (int i=1; i<3; i++){    
@@ -465,7 +465,7 @@ int main(int argc, char** argv) {
         double buffer = 0.5; // 20 cm buffer in front of box
         nodes[i][0] -= buffer * cos(nodes[i][2]);
         nodes[i][1] -= buffer * sin(nodes[i][2]);
-        nodes[i][2] = 2*M_PI - nodes[i][2]; // adjust robot orientation to face the box
+        //nodes[i][2] = 2*M_PI - nodes[i][2]; // adjust robot orientation to face the box
     }
     
     // iterate though nodes and compute path from each node to each other node using ComputePathToPose action - Isabelle
@@ -546,9 +546,11 @@ int main(int argc, char** argv) {
     bool startup = true; 
     bool armSuccess = false;
     bool gripSuccess = false;
-    startupObjectPose[0] = 0.15;
-    startupObjectPose[1] = 0.0;
-    startupObjectPose[2] = 0.05;
+    startupObjectPose[0] = 0.099;
+    startupObjectPose[1] = -0.009;
+    startupObjectPose[2] = 0.155;
+
+    
 
     int currentBoxIndex = 0; // index to keep track of which box we are navigating to
     bool arrivedAtGoal = false; // flag to indicate if we have arrived at the current goal
@@ -573,6 +575,9 @@ int main(int argc, char** argv) {
     // create array for saving location of each ITEM associated with each box
     std::vector<std::array<double,3>> item_locations;
 
+    std::string detected = (yoloDetectionOutput("oakd", secondsElapsed, true));
+
+
     // Execute strategy
     while(rclcpp::ok() && secondsElapsed <= 300) {
         rclcpp::spin_some(node);
@@ -582,9 +587,33 @@ int main(int argc, char** argv) {
         secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
 
         /***YOUR CODE HERE***/
+        // TEMP CODE /////////////////////////////////////////
+        // if (aprilTagDetected(secondsElapsed)) {
+        //     auto tagPose = getBinTagPose();
+
+        //     if (tagPose.has_value())
+        //     {
+        //         RCLCPP_INFO(node->get_logger(),
+        //             "Main loop: AprilTag detected at pos(%.3f, %.3f, %.3f)",
+        //             tagPose->position.x, tagPose->position.y, tagPose->position.z);
+        //         armController->moveToCartesianPose(
+        //             tagPose->position.x, tagPose->position.y, tagPose->position.z + 0.1, // hover 10 cm above the tag
+        //             -0.657, 0.000, -0.000, 0.754); // same gripper orientation used throughout the file
+        //     }
+        //      else {
+        //         RCLCPP_INFO(node->get_logger(),
+        //             "Main loop: AprilTag detected but no valid pose found");  
+        //      }      
+        // }
+        // else {
+        //     RCLCPP_INFO(node->get_logger(),
+        //         "Main loop: No AprilTag detected");
+        // }
+
 
         //Enter routine based on conditions
         //startup (pickup and detect our object
+        
         if(startup) {
             objectName = startupArm();
             startup = false;
@@ -690,6 +719,9 @@ int main(int argc, char** argv) {
              putInBin();
              objectFound = false;
         }
+             
+        
+        
 
         // else {continue;}
 
@@ -707,3 +739,5 @@ int main(int argc, char** argv) {
 
 
 }
+
+
