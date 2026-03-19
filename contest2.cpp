@@ -230,23 +230,23 @@ void grab() {
     
     // }
 
-    // Phase 1: over object at scan height, angled to avoid singularity
-    armController->moveToCartesianPose(startupObjectPose[0] - 0.03,  startupObjectPose[1], scanZ,                 0.0, 0.0, 0.0);
+    // Phase 1: over object at scan height, offset along Y (approaching from side)
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1] - 0.03,  scanZ,                0.0, 0.0, 1.658);
 
-    // Phase 2: intermediate descent
-    armController->moveToCartesianPose(startupObjectPose[0] - 0.015, startupObjectPose[1], approachZ,             0.0, 0.1, 0.0);
+    // Phase 2: intermediate descent, closing in along Y
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1] - 0.015, approachZ,            0.0, 0.1, 1.658);
 
-    // Phase 3: final descent to object
-    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1], startupObjectPose[2],  0.0, 0.2, 0.0);
+    // Phase 3: final descent to cup
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1],         startupObjectPose[2], 0.0, 0.2, 1.658);
 
     armController->closeGripper();
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
-    // Mirror approach path on the way back up before reorienting
-    armController->moveToCartesianPose(startupObjectPose[0] - 0.015, startupObjectPose[1], approachZ,             0.0, 0.1, 0.0);
+    // Mirror approach path on the way back up
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1] - 0.015, approachZ,            0.0, 0.1, 1.658);
 
     //lift back up to scan height before moving laterally to carry pose
-    armController->moveToCartesianPose(startupObjectPose[0],         startupObjectPose[1], 0.280,                 0.0, 0.0, 0.0);
+    armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1],         0.280,                0.0, 0.0, 1.658);
 
     //move the arm to location 2 to pick it up and orient to later drop it in
     RCLCPP_INFO(node->get_logger(), "Moving arm to position to later drop in bin");
