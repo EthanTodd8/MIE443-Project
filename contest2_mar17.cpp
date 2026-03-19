@@ -13,6 +13,7 @@
 #include <map>
 #include <array>
 #include <string>
+#include <iostream>
 
 #include <optional>      /* std::optional lets getBinTagPose() return either a real Pose
                           or "nothing found" without using raw pointers */ 
@@ -567,6 +568,7 @@ int main(int argc, char** argv) {
 
     // create array for saving location of each ITEM associated with each box
     std::vector<std::array<double,3>> item_locations;
+    auto startAprilTagDetectionTime = std::chrono::system_clock::now();
 
 
     // Execute strategy
@@ -610,9 +612,10 @@ int main(int argc, char** argv) {
             if (arrivedAtGoal) {
                 currentBoxIndex++;
             }
+            startAprilTagDetectionTime = std::chrono::system_clock::now(); // reset AprilTag detection timer when we arrive at a new box
         }
         // //added the apriltag bits, replaced the old code for state 3 and 4
-        else if (arrivedAtGoal && !objectFound && currentBoxIndex < (int)full_route.size() - 1) 
+        else if (arrivedAtGoal && !objectFound && currentBoxIndex < (int)full_route.size() - 1)
         {  
             if (aprilTagDetected(secondsElapsed)) // checks if april tag is detected
             {
@@ -672,6 +675,12 @@ int main(int argc, char** argv) {
                         boxItemCoordinates[detected] = coords;
                         RCLCPP_INFO(node->get_logger(), "Detected object %s not in boxItemCoordinates list, but saving coordinates (%.2f, %.2f, %.2f) for future reference", detected.c_str(), coords[0], coords[1], coords[2]);
                     }
+
+                    std::ofstream outfile("boxItemCoordinates.txt");
+                    for (const auto& pair : boxItemCoordinates) {
+                        outfile << pair.first << ": " << pair.second[0] << ", " <<pair.second[1] << ", " << pair.second[2] << std::endl;
+                    }
+                    outfile.close();
                 }
 
                 arrivedAtGoal  = false;
@@ -681,7 +690,7 @@ int main(int argc, char** argv) {
                 // if couldn't detect tag, go to next box
                 RCLCPP_INFO(node->get_logger(), "AprilTag not detected at goal pose, moving on to next box");
                 objectFound = false;
-                arrivedAtGoal = false;
+                if (std::chrono::system_clock::now() - startAprilTagDetectionTime).count() < 5) {arrivedAtGoal = false; }
             }
         }
         else if (objectFound) {
