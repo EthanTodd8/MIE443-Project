@@ -604,6 +604,8 @@ int main(int argc, char** argv) {
 
         /***YOUR CODE HERE***/
         // TEMP CODE /////////////////////////////////////////
+
+        // APRILE TAG TEST CODE
         // if (aprilTagDetected(secondsElapsed)) {
         //     auto tagPose = getBinTagPose();
 
@@ -624,6 +626,15 @@ int main(int argc, char** argv) {
         // else {
         //     RCLCPP_INFO(node->get_logger(),
         //         "Main loop: No AprilTag detected");
+        // }
+
+        // // YOLO TEST CODE
+        // std::string detected = yoloDetectionOutput("wrist", secondsElapsed, true);
+        //  if (!detected.empty()) {
+        //     RCLCPP_INFO(node->get_logger(), "Main loop: Detected %s with confidence %.2f",
+        //             detected.c_str(), yoloDetector->getConfidence());
+        // } else {
+        //     RCLCPP_INFO(node->get_logger(), "Main loop: No object detected by YOLO");
         // }
 
 
@@ -735,9 +746,6 @@ int main(int argc, char** argv) {
              putInBin();
              objectFound = false;
         }
-             
-        
-        
 
         // else {continue;}
 
