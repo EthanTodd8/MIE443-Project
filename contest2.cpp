@@ -13,21 +13,18 @@
 #include <map>
 #include <array>
 #include <string>
-
-#include <optional>
-                          
+#include <optional>                     
 #include "nav2_msgs/action/compute_path_to_pose.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
-#include "sensor_msgs/msg/joint_state.hpp" // ADDED: joint command publishing
+#include "sensor_msgs/msg/joint_state.hpp" 
 
 AprilTagDetector* tagDetector   = nullptr;
 std::vector<int>  candidateTags = {0, 1, 2, 3, 4};
 
 ArmController* armController = nullptr;
 
-// ADDED: global joint command publisher
 rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr jointCommandPub;
 
 rclcpp::Node::SharedPtr node;
@@ -156,54 +153,55 @@ bool isTargetObject(std::string name)
     return false;
 }
 
-// ADDED: helper to publish joint positions once (equivalent to ros2 topic pub --once)
-void moveToJointPositions(const std::vector<double>& positions)
-{
-    sensor_msgs::msg::JointState msg;
-    msg.header.stamp = node->now();
-    msg.name         = {"1", "2", "3", "4", "5", "6"};
-    msg.position     = positions;
-    jointCommandPub->publish(msg);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-}
 
 void orientForPickup()
 {
-    // ADDED: move arm through joint-space poses before Cartesian scan
-    RCLCPP_INFO(node->get_logger(), "orientForPickup: joint pose 1");
-    moveToJointPositions({-1.5933, -0.8909,   0.8583,  1.600,  2.7448, -0.0774});
+    armController->moveToCartesianPose(0.300, 0.000, 0.400, -0.471, -0.557, 0.564, -0.387);
 
-    RCLCPP_INFO(node->get_logger(), "orientForPickup: joint pose 2");
-    moveToJointPositions({-1.5933, -0.58519, -0.23257, 1.6061, 2.7448, -0.0774});
+        std::vector<std::vector<double>> positions = {
+        {-1.5933, -0.8909, 0.8583, 1.600, 2.7448, -0.0774},
+        {-1.5933, -0.58519, -0.23257, 1.6061, 2.7448, -0.0774},
+        {-0.4208, -0.5222, -0.5366, 0.8286, 2.7448, -0.0774}
+    };
 
-    RCLCPP_INFO(node->get_logger(), "orientForPickup: joint pose 3");
-    moveToJointPositions({-0.4208, -0.5222,  -0.5366,  0.8286, 2.7448, -0.0774});
+    std::vector<std::string> names = {"1", "2", "3", "4", "5", "6"};
 
-    float scanZ = 0.20;
+    for (const auto & pos : positions)
+    {
+        sensor_msgs::msg::JointState msg;
+        msg.name = names;
+        msg.position = pos;
 
-    float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658},
-                                {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, scanZ,-0.006, -0.000, 1.658 },
-                                {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
+        publisher->publish(msg);
+        rclcpp::sleep_for(std::chrono::seconds(1));
+    }
+    armController->moveToCartesianPose(0.300, 0.000, 0.400, -0.471, -0.557, 0.564, -0.387);
+
+    //float scanZ = 0.10;
+
+    // float armPose[3][6] = {{startupObjectPose[0], startupObjectPose[1], scanZ, -0.006, -0.000, 1.658},
+    //                             {startupObjectPose[0]- rotation, startupObjectPose[1] + rotation, scanZ,-0.006, -0.000, 1.658 },
+    //                             {startupObjectPose[0] + rotation, startupObjectPose[1] - rotation, scanZ, -0.006, -0.000, 1.658  }};
 
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.244, -0.471, -0.557,  0.564, -0.387);
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.170, -0.471, -0.557,  0.564, -0.387);
     armController->moveToCartesianPose(startupObjectPose[0], startupObjectPose[1], startupObjectPose[2]+0.100, -0.471, -0.557,  0.564, -0.387);
-    armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
+    // armController->moveToCartesianPose(armPose[0][0], armPose[0][1], armPose[0][2], armPose[0][3], armPose[0][4], armPose[0][5]);
 
-    for (int i=1; i<3; i++){    
-        detectedClass = yoloDetector->getObjectName(CameraSource::WRIST, true);
-        float confidence = yoloDetector->getConfidence();
+    // for (int i=1; i<3; i++){    
+    //     detectedClass = yoloDetector->getObjectName(CameraSource::WRIST, true);
+    //     float confidence = yoloDetector->getConfidence();
 
-        if (!isTargetObject(detectedClass)&&confidence > 0.5){
-            armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5]); 
-        }
-        else break;
-    }
+    //     if (!isTargetObject(detectedClass)&&confidence > 0.5){
+    //         armController->moveToCartesianPose(armPose[i][0], armPose[i][1], armPose[i][2], armPose[i][3], armPose[i][4], armPose[i][5]); 
+    //     }
+    //     else break;
+    // }
 }
 
 void grab() {
 
-    float scanZ     = 0.20;
+    float scanZ     = 0.10;
     float approachZ = 0.14;
 
     armController->openGripper();
