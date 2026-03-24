@@ -24,6 +24,13 @@ class YoloDetectorNode(Node):
         
         # Confidence threshold
         self.confidence_threshold = 0.5
+
+        # top 5 results
+        self.result1 = None
+        self.result2 = None
+        self.result3 = None
+        self.result4 = None
+        self.result5 = None
         
         # Create service
         self.service = self.create_service(
@@ -62,6 +69,7 @@ class YoloDetectorNode(Node):
             response.message = "No objects detected"
             return response
         
+        
         ##filter by confidence threshold
         mask = boxes.conf >= self.confidence_threshold
         if not mask.any():
@@ -70,9 +78,11 @@ class YoloDetectorNode(Node):
             response.class_name = ""
             response.confidence = 0.0
             response.message = f"No detections found above confidence threshold {self.confidence_threshold}"
+            
             return response
         
         #Get highest confidence detection
+        
         best_idx = boxes.conf.argmax()
         class_id = int(boxes.cls[best_idx])
         confidence = float(boxes.conf[best_idx])
@@ -88,8 +98,8 @@ class YoloDetectorNode(Node):
         center_y = (y1 + y2) / 2
         
         #return center coordinates 
-        response.x = float(center_x)
-        response.y = float(center_y)
+        #response.x = float(center_x)
+        #response.y = float(center_y)
         response.success = True
         response.class_id = class_id
         response.class_name = class_name  # Return class as string
@@ -97,14 +107,13 @@ class YoloDetectorNode(Node):
         response.message = f"Detected {class_name} with confidence {confidence:.4f}"
         
         if save_detected_image:
-            filename = f"yourpath/save/yolo_detections_{class_name}_.jpg"
+            filename = f"/home/turtlebot/ros2_ws/yoloDetectedImages/yolo_detections_{class_name}_.jpg"
             annotated_image = results[0].plot()  # Get annotated image with bounding boxes
             cv2.imwrite(filename, annotated_image)
             self.get_logger().info(f'Saved annotated image: {filename}')
             
         self.get_logger().info(f"Detected {class_name}, ({confidence:.4f})")
         return response
-
 
 
 def main(args=None):
