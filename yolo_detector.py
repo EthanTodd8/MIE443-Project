@@ -47,7 +47,8 @@ class YoloDetectorNode(Node):
         # Decode compressed image
         np_arr = np.frombuffer(request.image.data, np.uint8)
         save_detected_image = request.save_detected_image
-        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        image1 = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        image = cv2.flip(image1, 0)
         
         if image is None:
             response.success = False
@@ -71,6 +72,13 @@ class YoloDetectorNode(Node):
         
         
         ##filter by confidence threshold
+        # save the top 5 most confident detections
+        self.result1 = None
+        self.result2 = None
+        self.result3 = None
+        self.result4 = None
+        self.result5 = None
+
         mask = boxes.conf >= self.confidence_threshold
         if not mask.any():
             response.success = False
@@ -81,38 +89,75 @@ class YoloDetectorNode(Node):
             
             return response
         
-        #Get highest confidence detection
+        # Get top 5 highest confidence detections
+        # Sort boxes by confidence in descending order
+        sorted_indices = boxes.conf.argsort(descending=True)
         
-        best_idx = boxes.conf.argmax()
-        class_id = int(boxes.cls[best_idx])
-        confidence = float(boxes.conf[best_idx])
-        class_name = self.model.names[class_id]
+        # Get up to top 5 detections
+        top_k = min(5, len(sorted_indices))
+        top_indices = sorted_indices[:top_k]
         
-        #--NEW--
-        # Get bounding box
-        bbox = boxes.xyxy[best_idx].cpu().numpy()
-        x1, y1, x2, y2 = bbox
-
-        # Get center of bounding box
-        center_x = (x1 + x2) / 2
-        center_y = (y1 + y2) / 2
+        # Store top 5 results
+        results_list = []
+        for i, idx in enumerate(top_indices):
+            class_id = int(boxes.cls[idx])
+            confidence = float(boxes.conf[idx])
+            class_name = self.model.names[class_id]
+            bbox = boxes.xyxy[idx].cpu().numpy()
+            x1, y1, x2, y2 = bbox
+            center_x = (x1 + x2) / 2
+            center_y = (y1 + y2) / 2
+            
+            detection_info = {
+                'class_id': class_id,
+                'class_name': class_name,
+                'confidence': confidence,
+                'bbox': (x1, y1, x2, y2),
+                'center': (center_x, center_y)
+            }
+            results_list.append(detection_info)
+            
+            # Store in numbered result attributes
+            if i == 0:
+                self.result1 = detection_info
+            elif i == 1:
+                self.result2 = detection_info
+            elif i == 2:
+                self.result3 = detection_info
+            elif i == 3:
+                self.result4 = detection_info
+            elif i == 4:
+                self.result5 = detection_info
         
-        #return center coordinates 
-        #response.x = float(center_x)
-        #response.y = float(center_y)
+        # Target classes to prioritize
+        target_classes = {'cup', 'bottle', 'clock', 'motorcycle', 'plant'}
+        
+        # Check if any of the top 5 detections are target classes
+        best_detection = results_list[0]  # default to highest confidence
+        for detection in results_list:
+            if detection['class_name'].lower() in target_classes:
+                best_detection = detection
+                save_detected_image = True  # Force save if target class found
+                self.get_logger().info(f"Target class found: {detection['class_name']}")
+                break
+        
         response.success = True
-        response.class_id = class_id
-        response.class_name = class_name  # Return class as string
-        response.confidence = confidence
-        response.message = f"Detected {class_name} with confidence {confidence:.4f}"
+        response.class_id = best_detection['class_id']
+        response.class_name = best_detection['class_name']
+        response.confidence = best_detection['confidence']
+        response.message = f"Top 5 detections - Best: {best_detection['class_name']} ({best_detection['confidence']:.4f})"
         
         if save_detected_image:
-            filename = f"/home/turtlebot/ros2_ws/yoloDetectedImages/yolo_detections_{class_name}_.jpg"
+            filename = f"/home/turtlebot/ros2_ws/yoloDetectedImages/yolo_detections_{best_detection['class_name']}_.jpg"
             annotated_image = results[0].plot()  # Get annotated image with bounding boxes
             cv2.imwrite(filename, annotated_image)
             self.get_logger().info(f'Saved annotated image: {filename}')
-            
-        self.get_logger().info(f"Detected {class_name}, ({confidence:.4f})")
+        
+        # Log all top 5 detections
+        self.get_logger().info("=== Top 5 Detections ===")
+        for i, det in enumerate(results_list, 1):
+            self.get_logger().info(f"  {i}. {det['class_name']} - Confidence: {det['confidence']:.4f}")
+        
         return response
 
 
