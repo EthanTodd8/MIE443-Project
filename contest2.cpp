@@ -13,6 +13,7 @@
 #include <map>
 #include <array>
 #include <string>
+#include <iostream>
 
 #include <optional>
                           
@@ -554,6 +555,12 @@ int main(int argc, char** argv) {
                         boxItemCoordinates[detected] = coords;
                         RCLCPP_INFO(node->get_logger(), "Detected object %s not in boxItemCoordinates list, but saving coordinates (%.2f, %.2f, %.2f) for future reference", detected.c_str(), coords[0], coords[1], coords[2]);
                     }
+
+                    std::ofstream outfile("boxItemCoordinates.txt");
+                    for (const auto& pair : boxItemCoordinates) {
+                        outfile << pair.first << ": " << pair.second[0] << ", " <<pair.second[1] << ", " << pair.second[2] << std::endl;
+                    }
+                    outfile.close();
                 }
 
 
