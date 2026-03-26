@@ -23,6 +23,9 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "sensor_msgs/msg/joint_state.hpp" // ADDED: joint command publishing
 
+#include <Eigen/Dense>
+#include <Eigen/Geometry>
+
 AprilTagDetector* tagDetector   = nullptr;
 std::vector<int>  candidateTags = {0, 1, 2, 3, 4};
 
@@ -44,6 +47,178 @@ void grab();
 void putInBin();
 bool isTargetObject(std::string name);
 std::string startupArm();
+
+#pragma region HELPER FUNCTIONS FOR CONVERTING FROM JOINT ANGLES TO CARTESIAN POSE - ISABELLE
+
+struct CartesianPose
+{
+    double x;
+    double y;
+    double z;
+    double roll;
+    double pitch;
+    double yaw;
+};
+
+Eigen::Matrix4d Txyz(double x, double y, double z)
+{
+    Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+    T(0, 3) = x;
+    T(1, 3) = y;
+    T(2, 3) = z;
+    return T;
+}
+
+Eigen::Matrix4d Rx(double a)
+{
+    Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+    double c = std::cos(a), s = std::sin(a);
+    T(1,1) = c;  T(1,2) = -s;
+    T(2,1) = s;  T(2,2) =  c;
+    return T;
+}
+
+Eigen::Matrix4d Ry(double a)
+{
+    Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+    double c = std::cos(a), s = std::sin(a);
+    T(0,0) =  c; T(0,2) = s;
+    T(2,0) = -s; T(2,2) = c;
+    return T;
+}
+
+Eigen::Matrix4d Rz(double a)
+{
+    Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+    double c = std::cos(a), s = std::sin(a);
+    T(0,0) = c;  T(0,1) = -s;
+    T(1,0) = s;  T(1,1) =  c;
+    return T;
+}
+
+Eigen::Matrix4d Rrpy(double roll, double pitch, double yaw)
+{
+    return Rz(yaw) * Ry(pitch) * Rx(roll);
+}
+
+Eigen::Matrix4d jointT(double x, double y, double z,
+                       double roll, double pitch, double yaw,
+                       double theta)
+{
+    // URDF joint transform:
+    // T(origin xyz) * R(origin rpy) * Rz(theta)
+    return Txyz(x, y, z) * Rrpy(roll, pitch, yaw) * Rz(theta);
+}
+
+CartesianPose matrixToPoseRPY(const Eigen::Matrix4d& T)
+{
+    CartesianPose pose;
+    pose.x = T(0,3);
+    pose.y = T(1,3);
+    pose.z = T(2,3);
+
+    Eigen::Matrix3d R = T.block<3,3>(0,0);
+
+    // ZYX / getRPY-compatible extraction
+    pose.yaw   = std::atan2(R(1,0), R(0,0));
+    pose.pitch = std::asin(-R(2,0));
+    pose.roll  = std::atan2(R(2,1), R(2,2));
+
+    return pose;
+}
+
+CartesianPose fkSo101Gripper(const std::array<double, 5>& q)
+{
+    const double q1 = q[0];
+    const double q2 = q[1];
+    const double q3 = q[2];
+    const double q4 = q[3];
+    const double q5 = q[4];
+
+    Eigen::Matrix4d T1 = jointT(
+        0.0207909, -0.0230745, 0.0948817,
+        -3.14159,  6.03684e-16, 1.5708,
+        q1
+    );
+
+    Eigen::Matrix4d T2 = jointT(
+        -0.0303992, -0.0182778, -0.0542,
+        -1.5708, -1.5708, 0.0,
+        q2
+    );
+
+    Eigen::Matrix4d T3 = jointT(
+        -0.11257, -0.028, 2.46331e-16,
+        -1.22818e-15, 5.75928e-16, 1.5708,
+        q3
+    );
+
+    Eigen::Matrix4d T4 = jointT(
+        -0.1349, 0.0052, 1.65232e-16,
+        3.2474e-15, 2.86219e-15, -1.5708,
+        q4
+    );
+
+    Eigen::Matrix4d T5 = jointT(
+        0.0, -0.0611, 0.0181,
+        1.5708, -9.38083e-08, 3.14159,
+        q5
+    );
+
+    Eigen::Matrix4d T = T1 * T2 * T3 * T4 * T5;
+    return matrixToPoseRPY(T);
+}
+
+CartesianPose fkSo101Jaw(const std::array<double, 6>& q)
+{
+    const double q1 = q[0];
+    const double q2 = q[1];
+    const double q3 = q[2];
+    const double q4 = q[3];
+    const double q5 = q[4];
+    const double q6 = q[5];
+
+    Eigen::Matrix4d T1 = jointT(
+        0.0207909, -0.0230745, 0.0948817,
+        -3.14159,  6.03684e-16, 1.5708,
+        q1
+    );
+
+    Eigen::Matrix4d T2 = jointT(
+        -0.0303992, -0.0182778, -0.0542,
+        -1.5708, -1.5708, 0.0,
+        q2
+    );
+
+    Eigen::Matrix4d T3 = jointT(
+        -0.11257, -0.028, 2.46331e-16,
+        -1.22818e-15, 5.75928e-16, 1.5708,
+        q3
+    );
+
+    Eigen::Matrix4d T4 = jointT(
+        -0.1349, 0.0052, 1.65232e-16,
+        3.2474e-15, 2.86219e-15, -1.5708,
+        q4
+    );
+
+    Eigen::Matrix4d T5 = jointT(
+        0.0, -0.0611, 0.0181,
+        1.5708, -9.38083e-08, 3.14159,
+        q5
+    );
+
+    Eigen::Matrix4d T6 = jointT(
+        0.0202, 0.0188, -0.0234,
+        1.5708, -5.14108e-17, -1.38655e-14,
+        q6
+    );
+
+    Eigen::Matrix4d T = T1 * T2 * T3 * T4 * T5 * T6;
+    return matrixToPoseRPY(T);
+}
+
+#pragma endregion
 
 double getYawFromQuaternion(const geometry_msgs::msg::Quaternion &q)
 {
@@ -480,6 +655,7 @@ int main(int argc, char** argv) {
     //std::string detected = (yoloDetectionOutput("oakd", secondsElapsed, true));
     uint64_t startAprilTagSearch = 0.0;
 
+    #pragma region WHILE LOOP
     while(rclcpp::ok() && secondsElapsed <= 300) {
         //RCLCPP_INFO(node->get_logger(), "Main loop - seconds elapsed: %d", secondsElapsed);
         rclcpp::spin_some(node);
@@ -493,9 +669,25 @@ int main(int argc, char** argv) {
         //xyz: 0.114, -0.022, 0.174
         //rpy: 0.015, -0.035, 2.749
 
+        ////////////////////////////////////////////////////////////////////////
+        /////////////////////////TEST THE FOLLOWING CODE////////////////////////
+        // example using of joint angles converter to cartesian pose;
+        // std::array<double, 6> joints = {-1.5933, -0.8909, 0.7, 1.600, 2.7448, -0.0774};
+
+        // CartesianPose jawPose = fkSo101Jaw(joints);
+
+        // RCLCPP_INFO(node->get_logger(),
+        //     "Jaw pose -> x: %.3f y: %.3f z: %.3f roll: %.3f pitch: %.3f yaw: %.3f",
+        //     jawPose.x, jawPose.y, jawPose.z,
+        //     jawPose.roll, jawPose.pitch, jawPose.yaw);
+
+        // moveToCartesianPose(jawPose.x, jawPose.y, jawPose.z, jawPose.roll, jawPose.pitch, jawPose.yaw);
+        ////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////
+
         //joints: [-1.5933, -0.8909, 0.6, 1.600, 2.7448, -0.0774]
         //xyz: 0.124, -0.023, 0.224
-        //rpy: -0.092, 0.212, 2.727
+        //xyz: 0.124, -0.023, 0.224
 
         //  TEST CODE //
         // call yolo from wrist
@@ -602,6 +794,7 @@ int main(int argc, char** argv) {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+    #pragma endregion
 
     if (secondsElapsed > 300) {
         RCLCPP_WARN(node->get_logger(), "Contest time limit reached!");
