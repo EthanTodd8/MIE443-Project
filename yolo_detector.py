@@ -47,8 +47,11 @@ class YoloDetectorNode(Node):
         # Decode compressed image
         np_arr = np.frombuffer(request.image.data, np.uint8)
         save_detected_image = request.save_detected_image
-        image1 = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        image = cv2.flip(image1, 0)
+        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        camera_source = request.camera_source.lower()
+        if camera_source == "wrist":
+            image = cv2.flip(image, 0)
         
         if image is None:
             response.success = False

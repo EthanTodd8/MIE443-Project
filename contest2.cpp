@@ -548,6 +548,7 @@ int main(int argc, char** argv) {
     armController = &armController_address;
 
     Navigation navigator(node);
+    //navigator.moveToGoal(robotPose.x, robotPose.y, robotPose.phi-M_PI); // spin in half circle to establish good localization
     
     AprilTagDetector aprilDetector(node);
     tagDetector = &aprilDetector;
@@ -571,7 +572,7 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < num_nodes; i++)
     {
-        double buffer = 0.25;
+        double buffer = 0.15;
         nodes[i][0] -= buffer * cos(nodes[i][2] + M_PI);
         nodes[i][1] -= buffer * sin(nodes[i][2] + M_PI);
         nodes[i][2] = nodes[i][2] + M_PI;
@@ -625,6 +626,9 @@ int main(int argc, char** argv) {
     #pragma endregion END PATH PLANNING TO BOXES
 
     bool startup = true; 
+    bool startYolo = false;
+    bool startPickup = false;
+    bool startTravelling = false;
     bool armSuccess = false;
     bool gripSuccess = false;
     startupObjectPose[0] = 0.099;
@@ -654,14 +658,24 @@ int main(int argc, char** argv) {
 
     //std::string detected = (yoloDetectionOutput("oakd", secondsElapsed, true));
     uint64_t startAprilTagSearch = 0.0;
+    uint64_t startYoloSearchTime = 0.0;
+
+    std::string detected = "";
 
     #pragma region WHILE LOOP
     while(rclcpp::ok() && secondsElapsed <= 300) {
-        //RCLCPP_INFO(node->get_logger(), "Main loop - seconds elapsed: %d", secondsElapsed);
+        RCLCPP_INFO(node->get_logger(), "Main loop - seconds elapsed: %d", secondsElapsed);
         rclcpp::spin_some(node);
 
         auto now = std::chrono::system_clock::now();
         secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
+        
+        /////
+        #pragma region testing region - Isabelle
+        //armController->moveToCartesianPose(0.114, -0.022, 0.174, 0.015, -0.035, 2.749); //position direction above object for better YOLO detection
+        
+        //armController->moveToCartesianPose(0.155, -0.030, 0.164, 0.445, 0.005, 1.506); //this pose reliably detects cup
+
 
         //armController->moveToCartesianPose(0.300, 0.000, 0.400, -0.471, -0.557, 0.564, -0.387);
 
@@ -681,27 +695,233 @@ int main(int argc, char** argv) {
         //     jawPose.x, jawPose.y, jawPose.z,
         //     jawPose.roll, jawPose.pitch, jawPose.yaw);
 
-        // moveToCartesianPose(jawPose.x, jawPose.y, jawPose.z, jawPose.roll, jawPose.pitch, jawPose.yaw);
+        // armController->moveToCartesianPose(jawPose.x, jawPose.y, jawPose.z, jawPose.roll, jawPose.pitch, jawPose.yaw);
         ////////////////////////////////////////////////////////////////////////
         ////////////////////////////////////////////////////////////////////////
 
         //joints: [-1.5933, -0.8909, 0.6, 1.600, 2.7448, -0.0774]
         //xyz: 0.124, -0.023, 0.224
         //xyz: 0.124, -0.023, 0.224
+        //armController->moveToCartesianPose(0.114, -0.022, 0.174, 0.015, -0.035, 2.749);
 
         //  TEST CODE //
         // call yolo from wrist
-        // std::string detected = yoloDetectionOutput("wrist", secondsElapsed, true);
+        //std::string detected = yoloDetectionOutput("wrist", secondsElapsed, true);
+        //armController->closeGripper();
+        //armController->openGripper();
 
+        // pos 1: 
+//         - Translation: [0.125, -0.022, 0.221]
+// - Rotation: in Quaternion (xyzw) [-0.115, -0.025, 0.974, 0.192]
+// - Rotation: in RPY (radian) [-0.095, 0.217, 2.742]
+        //armController->moveToCartesianPose(0.125, -0.022, 0.221, -0.095, 0.217, 2.742);
+
+        // pos 2:
+//         - Translation: [0.124, -0.021, 0.222]
+// - Rotation: in Quaternion (xyzw) [-0.081, -0.088, 0.685, 0.719]
+// - Rotation: in RPY (radian) [-0.239, -0.016, 1.524]
+// - Rotation: in RPY (degree) [-13.718, -0.895, 87.312]
+        //armController->moveToCartesianPose(0.124, -0.021, 0.222, -0.239, -0.016, 1.524);   
+
+
+//         // pos 3:
+//         - Translation: [0.147, -0.021, 0.188]
+// - Rotation: in Quaternion (xyzw) [0.051, 0.056, 0.685, 0.724]
+// - Rotation: in RPY (radian) [0.152, 0.011, 1.516]
+// - Rotation: in RPY (degree) [8.681, 0.629, 86.861]
+        //armController->moveToCartesianPose(0.147, -0.021, 0.188, 0.152, 0.011, 1.516);
+
+        // pos 4:
+//         - Translation: [0.175, -0.006, 0.178]
+// - Rotation: in Quaternion (xyzw) [0.110, 0.114, 0.759, 0.632]
+// - Rotation: in RPY (radian) [0.319, -0.023, 1.749]
+// - Rotation: in RPY (degree) [18.254, -1.319, 100.226]
+        //armController->moveToCartesianPose(0.175, -0.006, 0.178, 0.319, -0.023, 1.749);
+
+#pragma endregion
+
+        //std::string detected = yoloDetectionOutput("wrist", secondsElapsed, true);
         
-        if(startup) {
-            objectName = startupArm();
-            startup = false;
+        startTravelling = true; // TESTING PURPOSES - REMOVE LATER
+
+        if (!startTravelling) {
+            
+            if(startup) {
+                RCLCPP_INFO(node->get_logger(), "Starting arm sequence to pick up object");
+                //objectName = startupArm();
+                armController->openGripper();
+                armController->moveToCartesianPose(0.125, -0.022, 0.221, -0.095, 0.217, 2.742);
+                armController->moveToCartesianPose(0.124, -0.021, 0.222, -0.239, -0.016, 1.524); 
+                armController->moveToCartesianPose(0.175, -0.006, 0.178, 0.319, -0.023, 1.749);  
+
+                startup = false;
+                startYolo = true;
+                startYoloSearchTime = secondsElapsed;
+            }
+            else if (startYolo && secondsElapsed - startYoloSearchTime < 20.0) {
+                RCLCPP_INFO(node->get_logger(), "Starting YOLO detection loop to identify object in gripper");
+                detected = yoloDetectionOutput("wrist", secondsElapsed, true);
+                RCLCPP_INFO(node->get_logger(), "Wrist camera detection: %s", detected.c_str());
+                if (!detected.empty() && isTargetObject(detected)) {
+                    startYolo = false;
+                    startPickup = true;
+                    objectName = detected;
+                    RCLCPP_INFO(node->get_logger(), "Identified object in gripper as %s, proceeding to pickup sequence", objectName.c_str());
+
+                }
+            }
+            else if ((startPickup || secondsElapsed - startYoloSearchTime <= 20.0) && startTravelling == false) {
+                RCLCPP_INFO(node->get_logger(), "Starting pickup sequence for detected object: %s", detected.c_str());
+                if (!detected.empty() && isTargetObject(detected)) {
+                    armController->moveToCartesianPose(0.125, -0.022, 0.221, -0.095, 0.217, 2.742);
+                    if (detected == "cup") {
+                        //DEFAULT TEST GRIP
+                        // armController->moveToCartesianPose(0.149, -0.019, 0.154, 0.178, -0.017, 1.696); 
+                        // armController->closeGripper();
+                        // armController->closeGripper();
+    //                     // inside cup
+                        armController->moveToCartesianPose(0.128, 0.014, 0.172, -0.084, -0.006, 1.835);
+                        armController->closeGripper();
+                    }
+                    else {
+                        // default grab
+                        armController->moveToCartesianPose(0.149, -0.019, 0.154, 0.178, -0.017, 1.696); 
+                        armController->closeGripper();
+                    }
+                    armController->moveToCartesianPose(0.125, -0.022, 0.221, -0.095, 0.217, 2.742);
+                    
+                }
+                else {
+                    // default grab
+                    armController->moveToCartesianPose(0.149, -0.019, 0.154, 0.178, -0.017, 1.696);
+                    armController->closeGripper();
+                    armController->moveToCartesianPose(0.125, -0.022, 0.221, -0.095, 0.217, 2.742);
+                }
+                // hold position
+                armController->moveToCartesianPose(0.021, -0.022, 0.287, -1.523, 0.094, 0.042);
+                startPickup = false;
+                startTravelling = true;
+            }  
         }
+        else if (startTravelling) {
+            RCLCPP_INFO(node->get_logger(), "Starting navigation and box search sequence");
+            
+            if (aprilTagDetected(secondsElapsed))
+            {
+                RCLCPP_INFO(node->get_logger(), "AprilTag detected at current box location");
+                auto tagPose = getBinTagPose();
+                navigator.moveToGoal(tagPose->position.x, tagPose->position.y, getYawFromQuaternion(tagPose->orientation));
+                objectFound = true;
+            }
 
-        
-        
-        else if (currentBoxIndex < static_cast<int>(full_route.size()) - 1 && !arrivedAtGoal && !objectFound) 
+
+            //objectFound = true; // TESTING PURPOSES
+            if (objectFound) {
+                std::string detected = (yoloDetectionOutput("oakd", secondsElapsed, true));
+
+                armController->moveToCartesianPose(0.041, -0.308, 0.275, -1.236, 0.095, 0.103);
+                armController->openGripper();
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                armController->moveToCartesianPose(0.021, -0.022, 0.287, -1.523, 0.094, 0.042);
+                objectFound = false;
+            }
+
+             /*
+            if (currentBoxIndex < static_cast<int>(full_route.size()) - 1 && !arrivedAtGoal && !objectFound) 
+            {
+                int goal_node = full_route[currentBoxIndex + 1];
+
+                goal_x = nodes[goal_node][0];
+                goal_y = nodes[goal_node][1];
+                goal_phi = nodes[goal_node][2];
+
+                if (goal_node == 0) {
+                    goal_x = start_x;
+                    goal_y = start_y;
+                    goal_phi = start_phi;
+                } 
+
+                RCLCPP_INFO(node->get_logger(), "Navigating to node %d at (%.2f, %.2f, %.2f)", goal_node, goal_x, goal_y, goal_phi);
+                arrivedAtGoal = navigator.moveToGoal(goal_x, goal_y, goal_phi);
+                RCLCPP_INFO(node->get_logger(), "Arrived at goal: %s", arrivedAtGoal ? "true" : "false");
+                if (arrivedAtGoal) {
+                    currentBoxIndex++;
+                    startAprilTagSearch = secondsElapsed;
+                }
+            }
+            else if (arrivedAtGoal && !objectFound && currentBoxIndex < (int)full_route.size() - 1) 
+            {  
+                RCLCPP_INFO(node->get_logger(), "Searching for AprilTag at box %d", full_route[currentBoxIndex]);
+                if (aprilTagDetected(secondsElapsed))
+                {
+                    auto tagPose = getBinTagPose();
+
+                    if (tagPose.has_value())
+                    {
+                        RCLCPP_INFO(node->get_logger(), "AprilTag detected at box %d, adjusting position for pickup", full_route[currentBoxIndex]);
+                        double tag_x = tagPose->position.x;
+                        double tag_y = tagPose->position.y;
+                        double tag_yaw = getYawFromQuaternion(tagPose->orientation);
+                        const double desired_distance = 0.5;
+
+                        double target_x_robot = tag_x - desired_distance * cos(tag_yaw);
+                        double target_y_robot = tag_y - desired_distance * sin(tag_yaw);
+                        double target_yaw_robot = atan2(tag_y, tag_x);
+
+                        double goal_x = robotPose.x + cos(robotPose.phi) * target_x_robot - sin(robotPose.phi) * target_y_robot;
+                        double goal_y = robotPose.y + sin(robotPose.phi) * target_x_robot + cos(robotPose.phi) * target_y_robot;
+                        double goal_phi = robotPose.phi + target_yaw_robot;
+                        goal_phi = atan2(sin(goal_phi), cos(goal_phi));
+
+                        RCLCPP_INFO(node->get_logger(), "Adjusting position near AprilTag: goal (%.2f, %.2f, %.2f)", goal_x, goal_y, goal_phi);
+                        navigator.moveToGoal(goal_x, goal_y, goal_phi);
+                    }
+
+                    RCLCPP_INFO(node->get_logger(), "Bin AprilTag confirmed — preparing to drop object");
+
+                    std::string detected = (yoloDetectionOutput("oakd", secondsElapsed, true));
+                    if (!detected.empty()) {
+                        if (boxItemCoordinates.find(detected) != boxItemCoordinates.end()) {
+                            std::array<double, 3> coords = {goal_x, goal_y, goal_phi};
+                            boxItemCoordinates[detected] = coords;
+                            RCLCPP_INFO(node->get_logger(), "Updated coordinates for %s: (%.2f, %.2f, %.2f)", detected.c_str(), coords[0], coords[1], coords[2]);
+                            if (detected == objectName) { objectFound = true; }
+                        }
+                        else {
+                            std::array<double, 3> coords = {goal_x, goal_y, goal_phi};
+                            boxItemCoordinates[detected] = coords;
+                            RCLCPP_INFO(node->get_logger(), "Detected object %s not in boxItemCoordinates list, but saving coordinates (%.2f, %.2f, %.2f) for future reference", detected.c_str(), coords[0], coords[1], coords[2]);
+                        }
+
+                        std::ofstream outfile("boxItemCoordinates.txt");
+                        for (const auto& pair : boxItemCoordinates) {
+                            outfile << pair.first << ": " << pair.second[0] << ", " <<pair.second[1] << ", " << pair.second[2] << std::endl;
+                        }
+                        outfile.close();
+                    }
+
+
+                }
+                else 
+                {
+                    //RCLCPP_INFO(node->get_logger(), "AprilTag not detected at goal pose, moving on to next box");
+                    objectFound = false;
+                    if (secondsElapsed - startAprilTagSearch > 15) {
+                        RCLCPP_WARN(node->get_logger(), "AprilTag search timeout at current box, moving to next box");
+                        arrivedAtGoal = false;
+                    }
+                }
+            }
+            else if (objectFound) {
+                putInBin();
+                objectFound = false;
+            }
+            */
+        } 
+
+        #pragma region the following code will drive robot through maze and not do any startup arm stuff:
+        /*
+        if (currentBoxIndex < static_cast<int>(full_route.size()) - 1 && !arrivedAtGoal && !objectFound) 
         {
             int goal_node = full_route[currentBoxIndex + 1];
 
@@ -778,18 +998,21 @@ int main(int argc, char** argv) {
             }
             else 
             {
-                RCLCPP_INFO(node->get_logger(), "AprilTag not detected at goal pose, moving on to next box");
+                //RCLCPP_INFO(node->get_logger(), "AprilTag not detected at goal pose, moving on to next box");
                 objectFound = false;
-                if (secondsElapsed - startAprilTagSearch > 20) {
+                if (secondsElapsed - startAprilTagSearch > 15) {
                     RCLCPP_WARN(node->get_logger(), "AprilTag search timeout at current box, moving to next box");
                     arrivedAtGoal = false;
                 }
             }
         }
         else if (objectFound) {
-             putInBin();
-             objectFound = false;
+            putInBin();
+            objectFound = false;
         }
+        */
+        #pragma endregion
+        
         
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
