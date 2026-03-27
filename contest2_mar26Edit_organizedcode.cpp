@@ -1,0 +1,813 @@
+#include "mie443_contest2/boxes.h"
+#include "mie443_contest2/navigation.h"
+#include "mie443_contest2/robot_pose.h"
+#include "mie443_contest2/yoloInterface.h"
+#include "mie443_contest2/arm_controller.h"
+#include "mie443_contest2/apriltag_detector.h"
+
+#include <rclcpp/rclcpp.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
+
+#include "nav_msgs/msg/path.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <fstream>
+#include <iostream>
+#include <limits>
+#include <map>
+#include <memory>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
+
+#pragma region GLOBALS
+// ============================================================
+// GLOBALS
+// ============================================================
+
+rclcpp::Node::SharedPtr node;
+std::unique_ptr<YoloInterface> yoloDetector;
+ArmController* armController = nullptr;
+AprilTagDetector* tagDetector = nullptr;
+rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr jointCommandPub;
+
+std::vector<int> candidateTags = {0, 1, 2, 3, 4};
+#pragma endregion
+
+#pragma region CONSTANTS
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+const int CONTEST_TIME_LIMIT = 300;
+const int WRIST_YOLO_TIMEOUT = 20;
+const int APRILTAG_SEARCH_TIMEOUT = 10;
+const int BOX_YOLO_TIMEOUT = 10;
+const double BOX_APPROACH_BUFFER = 0.15;
+const double DESIRED_TAG_DISTANCE = 0.5;
+const std::string BOX_ITEMS_FILE = "/home/turtlebot/ros2_ws/boxItems.txt";
+
+const std::vector<std::string> TARGET_OBJECTS = {
+    "cup", "plant", "motorcycle", "bottle", "clock"
+};
+#pragma endregion
+
+#pragma region TYPES
+// ============================================================
+// TYPES
+// ============================================================
+
+struct ArmPose {
+    double x, y, z, rx, ry, rz;
+};
+
+const ArmPose STARTUP_PREVIEW_1{0.125, -0.022, 0.221, -0.095, 0.217, 2.742}; // NO CLUE HOW TO MAKE THESE POSES RELATIVE TO A GIVEN INPUT POSE
+const ArmPose STARTUP_PREVIEW_2{0.124, -0.021, 0.222, -0.239, -0.016, 1.524};
+const ArmPose STARTUP_PREVIEW_3{0.175, -0.006, 0.178, 0.319, -0.023, 1.749};
+const ArmPose DEFAULT_GRAB{0.149, -0.019, 0.154, 0.178, -0.017, 1.696};
+const ArmPose CUP_GRAB{0.128, 0.014, 0.172, -0.084, -0.006, 1.835};
+const ArmPose CARRY_POSE{0.021, -0.022, 0.287, -1.523, 0.094, 0.042};
+const ArmPose DROP_POSE{0.041, -0.308, 0.275, -1.236, 0.095, 0.103};
+
+enum class RobotState {
+    StartupPose,
+    IdentifyStartupObject,
+    PickupObject,
+    NavigateToBox,
+    SearchAtBox,
+    DropAtBox,
+    ReturnHome,
+    Finished
+};
+
+struct MissionData {
+    std::string objectName = "";
+    std::string detected = "";
+
+    int currentBoxIndex = 0;
+    int totalBoxes = 0;
+
+    bool arrivedAtGoal = false;
+    bool objectFound = false;
+    bool detectedObjectFromList = false;
+    bool foundAprilTag = false;
+    bool finishedAprilTagPhase = false;
+
+    double start_x = 0.0;
+    double start_y = 0.0;
+    double start_phi = 0.0;
+
+    double goal_x = 0.0;
+    double goal_y = 0.0;
+    double goal_phi = 0.0;
+};
+
+struct Timers {
+    uint64_t secondsElapsed = 0;
+    uint64_t startAprilTagSearch = 0;
+    uint64_t startYoloSearchTime = 0;
+};
+
+struct DetectionMemory {
+    std::map<std::string, std::array<double, 3>> coordinates;
+    std::map<std::string, float> confidences;
+};
+
+struct RoutePlan {
+    std::vector<std::array<double, 3>> nodes; // node 0 = home, 1..N = boxes
+    std::vector<int> visitOrder;              // only box nodes, no home
+};
+#pragma endregion
+
+#pragma region FUNCTION DECLARATIONS
+// ============================================================
+// FUNCTION DECLARATIONS
+// ============================================================
+
+double getYawFromQuaternion(const geometry_msgs::msg::Quaternion& q);
+bool isTargetObject(const std::string& name);
+std::string yoloDetectionOutput(const std::string& cameraName, float secondsElapsed, bool saveImage = false);
+
+bool aprilTagDetected(float secondsElapsed);
+std::optional<geometry_msgs::msg::Pose> getBinTagPose();
+
+DetectionMemory createEmptyDetectionMemory();
+void saveBoxItemsToFile(
+    const std::string& objectName,
+    const std::map<std::string, std::array<double, 3>>& boxItemCoordinates,
+    const std::map<std::string, float>& boxItemConfidences);
+
+void moveArmToPose(const ArmPose& p);
+void runStartupInspectionPose();
+bool tryIdentifyStartupObject(MissionData& mission, Timers& timers);
+void pickupObject(const std::string& detected);
+void dropObject();
+
+std::vector<int> solveTSP(const std::vector<std::vector<double>>& distances, std::vector<int> order);
+RoutePlan buildRoutePlan(const Boxes& boxes, double start_x, double start_y, double start_phi);
+
+bool navigateToNextBox(
+    MissionData& mission,
+    Navigation& navigator,
+    const std::vector<int>& visitOrder,
+    const std::vector<std::array<double, 3>>& nodes);
+
+bool handleBoxSearch(
+    MissionData& mission,
+    Timers& timers,
+    DetectionMemory& memory,
+    Navigation& navigator);
+#pragma endregion
+
+#pragma region UTILITY FUNCTIONS
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+
+double getYawFromQuaternion(const geometry_msgs::msg::Quaternion& q)
+{
+    tf2::Quaternion tf_q(q.x, q.y, q.z, q.w);
+    double roll, pitch, yaw;
+    tf2::Matrix3x3(tf_q).getRPY(roll, pitch, yaw);
+    return yaw;
+}
+
+bool isTargetObject(const std::string& name)
+{
+    return std::find(TARGET_OBJECTS.begin(), TARGET_OBJECTS.end(), name) != TARGET_OBJECTS.end();
+}
+
+std::string yoloDetectionOutput(const std::string& cameraName, float secondsElapsed, bool saveImage)
+{
+    static uint64_t lastYoloTime = 0;
+
+    if (secondsElapsed >= lastYoloTime + 2) {
+        lastYoloTime = static_cast<uint64_t>(secondsElapsed);
+
+        std::string detected = yoloDetector->getObjectName(CameraSource::OAKD, saveImage);
+        if (cameraName == "wrist") {
+            detected = yoloDetector->getObjectName(CameraSource::WRIST, saveImage);
+        }
+
+        RCLCPP_INFO(node->get_logger(), "--- YOLO Detection (%s camera) ---", cameraName.c_str());
+
+        if (!detected.empty()) {
+            float confidence = yoloDetector->getConfidence();
+            RCLCPP_INFO(node->get_logger(), "Detected: %s (Confidence: %.2f)",
+                        detected.c_str(), confidence);
+        } else {
+            RCLCPP_INFO(node->get_logger(), "No object detected");
+        }
+
+        return detected;
+    }
+
+    return "";
+}
+
+bool aprilTagDetected(float secondsElapsed)
+{
+    static uint64_t lastPrintTime = 0;
+    if (!tagDetector) return false;
+
+    if (secondsElapsed > lastPrintTime) {
+        lastPrintTime = static_cast<uint64_t>(secondsElapsed);
+
+        auto visible_tags = tagDetector->getVisibleTags(candidateTags);
+
+        if (!visible_tags.empty()) {
+            for (int tag_id : visible_tags) {
+                auto pose = tagDetector->getTagPose(tag_id);
+                if (pose.has_value()) {
+                    RCLCPP_INFO(node->get_logger(),
+                                "%s -> tag%d: pos(%.3f, %.3f, %.3f) ori(%.3f, %.3f, %.3f, %.3f)",
+                                tagDetector->getReferenceFrame().c_str(),
+                                tag_id,
+                                pose->position.x, pose->position.y, pose->position.z,
+                                pose->orientation.x, pose->orientation.y,
+                                pose->orientation.z, pose->orientation.w);
+                    return true;
+                }
+            }
+        } else {
+            RCLCPP_INFO(node->get_logger(), "No tags visible");
+        }
+    }
+
+    return false;
+}
+
+std::optional<geometry_msgs::msg::Pose> getBinTagPose()
+{
+    if (!tagDetector) return std::nullopt;
+
+    auto visible = tagDetector->getVisibleTags(candidateTags);
+    for (int tag_id : visible) {
+        auto pose = tagDetector->getTagPose(tag_id);
+        if (pose.has_value()) {
+            RCLCPP_INFO(node->get_logger(),
+                        "Using tag%d at pos(%.3f, %.3f, %.3f)",
+                        tag_id,
+                        pose->position.x, pose->position.y, pose->position.z);
+            return pose;
+        }
+    }
+
+    return std::nullopt;
+}
+#pragma endregion
+
+#pragma region FILE / MEMORY HELPERS
+// ============================================================
+// FILE / MEMORY HELPERS
+// ============================================================
+
+DetectionMemory createEmptyDetectionMemory()
+{
+    DetectionMemory memory;
+    for (const auto& obj : TARGET_OBJECTS) {
+        memory.coordinates[obj] = {0.0, 0.0, 0.0};
+        memory.confidences[obj] = 0.0f;
+    }
+    return memory;
+}
+
+void saveBoxItemsToFile(
+    const std::string& objectName,
+    const std::map<std::string, std::array<double, 3>>& boxItemCoordinates,
+    const std::map<std::string, float>& boxItemConfidences)
+{
+    std::ofstream outfile(BOX_ITEMS_FILE);
+    if (!outfile) {
+        RCLCPP_ERROR(node->get_logger(), "Error opening output file: %s", BOX_ITEMS_FILE.c_str());
+        return;
+    }
+
+    outfile << "Object detected from wrist camera: " << objectName << '\n';
+    outfile << "----------------------------------------" << '\n';
+
+    for (const auto& pair : boxItemCoordinates) {
+        const std::string& name = pair.first;
+        const auto& coords = pair.second;
+
+        float confidence = 0.0f;
+        auto it = boxItemConfidences.find(name);
+        if (it != boxItemConfidences.end()) {
+            confidence = it->second;
+        }
+
+        outfile << name << ": "
+                << coords[0] << ", "
+                << coords[1] << ", "
+                << coords[2]
+                << " | confidence: "
+                << confidence
+                << '\n';
+    }
+
+    outfile.close();
+}
+#pragma endregion
+
+#pragma region ARM HELPERS
+// ============================================================
+// ARM HELPERS
+// ============================================================
+
+void moveArmToPose(const ArmPose& p)
+{
+    armController->moveToCartesianPose(p.x, p.y, p.z, p.rx, p.ry, p.rz);
+}
+
+void runStartupInspectionPose()
+{
+    armController->openGripper();
+
+    moveArmToPose(STARTUP_PREVIEW_1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    moveArmToPose(STARTUP_PREVIEW_2);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    moveArmToPose(STARTUP_PREVIEW_3);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+}
+
+bool tryIdentifyStartupObject(MissionData& mission, Timers& timers)
+{
+    if (timers.secondsElapsed - timers.startYoloSearchTime < WRIST_YOLO_TIMEOUT) {
+        std::string detected = yoloDetectionOutput("wrist", static_cast<float>(timers.secondsElapsed), true);
+
+        if (!detected.empty() && isTargetObject(detected)) {
+            mission.detected = detected;
+            mission.objectName = detected;
+
+            RCLCPP_INFO(node->get_logger(),
+                        "Startup object identified: %s",
+                        detected.c_str());
+            return true;
+        }
+
+        return false;
+    }
+
+    mission.detected.clear();
+    mission.objectName.clear();
+
+    RCLCPP_WARN(node->get_logger(),
+                "Startup object identification timed out. Proceeding with fallback pickup.");
+    return true;
+}
+
+void pickupObject(const std::string& detected)
+{
+    moveArmToPose(STARTUP_PREVIEW_1);
+
+    if (detected == "cup") {
+        moveArmToPose(CUP_GRAB);
+    } else {
+        moveArmToPose(DEFAULT_GRAB);
+    }
+
+    armController->closeGripper();
+    moveArmToPose(STARTUP_PREVIEW_1);
+    moveArmToPose(CARRY_POSE);
+}
+
+void dropObject()
+{
+    moveArmToPose(DROP_POSE);
+    armController->openGripper();
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    moveArmToPose(CARRY_POSE);
+}
+#pragma endregion
+
+#pragma region ROUTE PLANNING
+// ============================================================
+// ROUTE PLANNING
+// ============================================================
+
+std::vector<int> solveTSP(const std::vector<std::vector<double>>& distances, std::vector<int> order)
+{
+    double best_distance = std::numeric_limits<double>::max();
+    std::vector<int> best_order;
+
+    std::sort(order.begin(), order.end());
+
+    do {
+        double total = 0.0;
+        int current = 0;
+
+        for (int next : order) {
+            total += distances[current][next];
+            current = next;
+        }
+
+        total += distances[current][0];
+
+        if (total < best_distance) {
+            best_distance = total;
+            best_order = order;
+        }
+
+    } while (std::next_permutation(order.begin(), order.end()));
+
+    return best_order;
+}
+
+RoutePlan buildRoutePlan(const Boxes& boxes, double start_x, double start_y, double start_phi)
+{
+    RoutePlan plan;
+
+    const int num_boxes = static_cast<int>(boxes.coords.size());
+    const int num_nodes = num_boxes + 1;
+
+    plan.nodes.push_back({start_x, start_y, start_phi});
+    for (const auto& box : boxes.coords) {
+        plan.nodes.push_back({box[0], box[1], box[2]});
+    }
+
+    for (int i = 1; i < num_nodes; ++i) {
+        plan.nodes[i][0] -= BOX_APPROACH_BUFFER * std::cos(plan.nodes[i][2] + M_PI);
+        plan.nodes[i][1] -= BOX_APPROACH_BUFFER * std::sin(plan.nodes[i][2] + M_PI);
+        plan.nodes[i][2] += M_PI;
+        plan.nodes[i][2] = std::atan2(std::sin(plan.nodes[i][2]), std::cos(plan.nodes[i][2]));
+    }
+
+    std::vector<std::vector<double>> distances(num_nodes, std::vector<double>(num_nodes, 0.0));
+
+    for (int start = 0; start < num_nodes; ++start) {
+        for (int goal = 0; goal < num_nodes; ++goal) {
+            if (start == goal) continue;
+
+            const double dx = plan.nodes[goal][0] - plan.nodes[start][0];
+            const double dy = plan.nodes[goal][1] - plan.nodes[start][1];
+            distances[start][goal] = std::sqrt(dx * dx + dy * dy);
+
+            RCLCPP_INFO(node->get_logger(),
+                        "Path %d -> %d has %.2f distance",
+                        start, goal, distances[start][goal]);
+        }
+    }
+
+    std::vector<int> order;
+    for (int i = 1; i < num_nodes; ++i) {
+        order.push_back(i);
+    }
+
+    plan.visitOrder = solveTSP(distances, order);
+
+    RCLCPP_INFO(node->get_logger(), "Best route:");
+    int current = 0;
+    double total_distance = 0.0;
+
+    for (int box : plan.visitOrder) {
+        RCLCPP_INFO(node->get_logger(),
+                    " %d -> %d (%.2f m)",
+                    current, box, distances[current][box]);
+        total_distance += distances[current][box];
+        current = box;
+    }
+
+    RCLCPP_INFO(node->get_logger(),
+                " %d -> %d (%.2f m) [RETURN]",
+                current, 0, distances[current][0]);
+    total_distance += distances[current][0];
+
+    RCLCPP_INFO(node->get_logger(),
+                "Total route length: %.2f m",
+                total_distance);
+
+    return plan;
+}
+#pragma endregion
+
+#pragma region NAVIGATION / BOX SEARCH
+// ============================================================
+// NAVIGATION / BOX SEARCH
+// ============================================================
+
+bool navigateToNextBox(
+    MissionData& mission,
+    Navigation& navigator,
+    const std::vector<int>& visitOrder,
+    const std::vector<std::array<double, 3>>& nodes)
+{
+    if (mission.currentBoxIndex >= static_cast<int>(visitOrder.size())) {
+        RCLCPP_WARN(node->get_logger(), "No more boxes left to visit.");
+        return true;
+    }
+
+    const int nodeIndex = visitOrder[mission.currentBoxIndex];
+
+    mission.goal_x = nodes[nodeIndex][0];
+    mission.goal_y = nodes[nodeIndex][1];
+    mission.goal_phi = nodes[nodeIndex][2];
+    mission.goal_phi = std::atan2(std::sin(mission.goal_phi), std::cos(mission.goal_phi));
+
+    RCLCPP_INFO(node->get_logger(),
+                "Navigating to route step %d (node %d) at (%.2f, %.2f, %.2f)",
+                mission.currentBoxIndex,
+                nodeIndex,
+                mission.goal_x,
+                mission.goal_y,
+                mission.goal_phi);
+
+    mission.arrivedAtGoal = navigator.moveToGoal(mission.goal_x, mission.goal_y, mission.goal_phi);
+    return mission.arrivedAtGoal;
+}
+
+bool handleBoxSearch(
+    MissionData& mission,
+    Timers& timers,
+    DetectionMemory& memory,
+    Navigation& navigator)
+{
+    // -----------------------------
+    // Phase 1: AprilTag alignment
+    // -----------------------------
+    if (!mission.finishedAprilTagPhase) {
+        if (timers.secondsElapsed - timers.startAprilTagSearch < APRILTAG_SEARCH_TIMEOUT) {
+            if (aprilTagDetected(static_cast<float>(timers.secondsElapsed))) {
+                auto tagPose = getBinTagPose();
+
+                if (tagPose.has_value()) {
+                    double tag_x = tagPose->position.x;
+                    double tag_y = tagPose->position.y;
+                    double tag_phi = getYawFromQuaternion(tagPose->orientation);
+
+                    double aligned_x = tag_x - DESIRED_TAG_DISTANCE * std::cos(tag_phi);
+                    double aligned_y = tag_y - DESIRED_TAG_DISTANCE * std::sin(tag_phi);
+                    double aligned_phi = tag_phi + M_PI;
+                    aligned_phi = std::atan2(std::sin(aligned_phi), std::cos(aligned_phi));
+
+                    RCLCPP_INFO(node->get_logger(),
+                                "AprilTag found. Re-aligning to (%.3f, %.3f, %.3f)",
+                                aligned_x, aligned_y, aligned_phi);
+
+                    navigator.moveToGoal(aligned_x, aligned_y, aligned_phi);
+                    mission.foundAprilTag = true;
+                }
+
+                mission.finishedAprilTagPhase = true;
+                timers.startYoloSearchTime = timers.secondsElapsed;
+                return false;
+            }
+
+            return false;
+        }
+
+        RCLCPP_WARN(node->get_logger(), "AprilTag search timed out. Starting YOLO box search.");
+        mission.finishedAprilTagPhase = true;
+        timers.startYoloSearchTime = timers.secondsElapsed;
+        return false;
+    }
+
+    // -----------------------------
+    // Phase 2: YOLO box search
+    // -----------------------------
+    if (timers.secondsElapsed - timers.startYoloSearchTime < BOX_YOLO_TIMEOUT) {
+        std::string detected = yoloDetectionOutput("oakd", static_cast<float>(timers.secondsElapsed), true);
+
+        if (!detected.empty() && isTargetObject(detected)) {
+            float confidence = yoloDetector->getConfidence();
+
+            mission.detected = detected;
+            mission.detectedObjectFromList = true;
+
+            memory.coordinates[detected] = {mission.goal_x, mission.goal_y, mission.goal_phi};
+            memory.confidences[detected] = confidence;
+
+            saveBoxItemsToFile(mission.objectName, memory.coordinates, memory.confidences);
+
+            RCLCPP_INFO(node->get_logger(),
+                        "Detected %s at box step %d with confidence %.2f",
+                        detected.c_str(),
+                        mission.currentBoxIndex,
+                        confidence);
+
+            if (detected == mission.objectName) {
+                mission.objectFound = true;
+                RCLCPP_INFO(node->get_logger(),
+                            "Match found: startup object %s belongs at this box.",
+                            detected.c_str());
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    // -----------------------------
+    // Phase 3: timeout fallback
+    // -----------------------------
+    RCLCPP_WARN(node->get_logger(),
+                "YOLO search timed out at route step %d.",
+                mission.currentBoxIndex);
+
+    mission.detected.clear();
+    mission.detectedObjectFromList = false;
+
+    // If this was the last box, use fallback drop here
+    if (mission.currentBoxIndex == mission.totalBoxes - 1) {
+        mission.objectFound = true;
+        RCLCPP_WARN(node->get_logger(), "Last box reached. Using fallback drop.");
+    }
+
+    return true;
+}
+#pragma endregion
+
+#pragma region MAIN
+// ============================================================
+// MAIN
+// ============================================================
+
+int main(int argc, char** argv)
+{
+    rclcpp::init(argc, argv);
+    node = std::make_shared<rclcpp::Node>("contest2");
+
+    yoloDetector = std::make_unique<YoloInterface>(node);
+
+    {
+        std::string desc_dir = ament_index_cpp::get_package_share_directory("lerobot_description");
+        std::ifstream urdf_file(desc_dir + "/urdf/so101.urdf");
+        if (urdf_file.is_open()) {
+            std::stringstream ss;
+            ss << urdf_file.rdbuf();
+            node->declare_parameter("robot_description", ss.str());
+        } else {
+            RCLCPP_ERROR(node->get_logger(), "Could not open arm URDF file");
+        }
+
+        std::string moveit_dir = ament_index_cpp::get_package_share_directory("lerobot_moveit");
+        std::ifstream srdf_file(moveit_dir + "/config/so101.srdf");
+        if (srdf_file.is_open()) {
+            std::stringstream ss;
+            ss << srdf_file.rdbuf();
+            node->declare_parameter("robot_description_semantic", ss.str());
+        } else {
+            RCLCPP_ERROR(node->get_logger(), "Could not open arm SRDF file");
+        }
+    }
+
+    RCLCPP_INFO(node->get_logger(), "Contest 2 node started");
+
+    RobotPose robotPose(0, 0, 0);
+    auto amclSub = node->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+        "/amcl_pose",
+        10,
+        std::bind(&RobotPose::poseCallback, &robotPose, std::placeholders::_1)
+    );
+
+    Boxes boxes;
+    if (!boxes.load_coords()) {
+        RCLCPP_ERROR(node->get_logger(), "ERROR: could not load box coordinates");
+        return -1;
+    }
+
+    for (size_t i = 0; i < boxes.coords.size(); ++i) {
+        RCLCPP_INFO(node->get_logger(),
+                    "Box %zu coordinates: x=%.2f, y=%.2f, phi=%.2f",
+                    i,
+                    boxes.coords[i][0],
+                    boxes.coords[i][1],
+                    boxes.coords[i][2]);
+    }
+
+    ArmController armController_address(node);
+    armController = &armController_address;
+
+    Navigation navigator(node);
+    navigator.moveToGoal(robotPose.x, robotPose.y, robotPose.phi - M_PI);
+
+    AprilTagDetector aprilDetector(node);
+    tagDetector = &aprilDetector;
+
+    RCLCPP_INFO(node->get_logger(),
+                "AprilTagDetector initialised (ref frame: %s, candidate tags: 0-4)",
+                aprilDetector.getReferenceFrame().c_str());
+
+    RoutePlan routePlan = buildRoutePlan(boxes, robotPose.x, robotPose.y, robotPose.phi);
+
+    MissionData mission;
+    mission.start_x = robotPose.x;
+    mission.start_y = robotPose.y;
+    mission.start_phi = robotPose.phi;
+    mission.totalBoxes = static_cast<int>(routePlan.visitOrder.size());
+
+    Timers timers;
+    DetectionMemory memory = createEmptyDetectionMemory();
+
+    RobotState state = RobotState::StartupPose;
+
+    auto start = std::chrono::system_clock::now();
+    bool done = false;
+
+    RCLCPP_INFO(node->get_logger(), "Starting contest - 300 seconds timer begins now!");
+
+    #pragma region WHILE LOOP
+    while (rclcpp::ok() && !done) {
+        rclcpp::spin_some(node);
+
+        auto now = std::chrono::system_clock::now();
+        timers.secondsElapsed =
+            std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
+
+        if (timers.secondsElapsed > CONTEST_TIME_LIMIT) {
+            RCLCPP_WARN(node->get_logger(), "Contest time limit reached!");
+            break;
+        }
+
+        switch (state) {
+            case RobotState::StartupPose:
+                RCLCPP_INFO(node->get_logger(), "Running startup inspection pose");
+                runStartupInspectionPose();
+                timers.startYoloSearchTime = timers.secondsElapsed;
+                state = RobotState::IdentifyStartupObject;
+                break;
+
+            case RobotState::IdentifyStartupObject:
+                if (tryIdentifyStartupObject(mission, timers)) {
+                    state = RobotState::PickupObject;
+                }
+                break;
+
+            case RobotState::PickupObject:
+                RCLCPP_INFO(node->get_logger(),
+                            "Picking up startup object: %s",
+                            mission.detected.empty() ? "<fallback>" : mission.detected.c_str());
+                pickupObject(mission.detected);
+                state = RobotState::NavigateToBox;
+                break;
+
+            case RobotState::NavigateToBox:
+                if (mission.currentBoxIndex >= mission.totalBoxes) {
+                    RCLCPP_WARN(node->get_logger(), "No remaining boxes. Returning home.");
+                    state = RobotState::ReturnHome;
+                    break;
+                }
+
+                if (navigateToNextBox(mission, navigator, routePlan.visitOrder, routePlan.nodes)) {
+                    mission.foundAprilTag = false;
+                    mission.finishedAprilTagPhase = false;
+                    mission.detectedObjectFromList = false;
+                    mission.detected.clear();
+
+                    timers.startAprilTagSearch = timers.secondsElapsed;
+                    state = RobotState::SearchAtBox;
+                }
+                break;
+
+            case RobotState::SearchAtBox:
+                if (handleBoxSearch(mission, timers, memory, navigator)) {
+                    if (mission.objectFound) {
+                        state = RobotState::DropAtBox;
+                    } else {
+                        mission.currentBoxIndex++;
+                        state = RobotState::NavigateToBox;
+                    }
+                }
+                break;
+
+            case RobotState::DropAtBox:
+                RCLCPP_INFO(node->get_logger(), "Dropping object");
+                dropObject();
+                state = RobotState::ReturnHome;
+                break;
+
+            case RobotState::ReturnHome:
+                RCLCPP_INFO(node->get_logger(),
+                            "Returning home to (%.2f, %.2f, %.2f)",
+                            mission.start_x, mission.start_y, mission.start_phi);
+                navigator.moveToGoal(mission.start_x, mission.start_y, mission.start_phi);
+                state = RobotState::Finished;
+                break;
+
+            case RobotState::Finished:
+                done = true;
+                break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    #pragma endregion
+
+    RCLCPP_INFO(node->get_logger(), "Contest 2 node shutting down");
+    rclcpp::shutdown();
+    return 0;
+}
+#pragma endregion
