@@ -333,20 +333,35 @@ void publishJointStates(
     double j1, double j2, double j3,
     double j4, double j5, double j6)
 {
+    // limits for clamping joint angles - taken directly from robot description URDF file
+    const std::array<double, 6> lower = {
+        -1.91986, -1.74533, -1.74533, -1.65806, -2.79253, -0.174533
+    };
+
+    const std::array<double, 6> upper = {
+         1.91986,  1.74533,  1.5708,  1.65806,  2.79253,  1.74533
+    };
+
+    std::array<double, 6> joints = {j1, j2, j3, j4, j5, j6};
+
+    // Clamp each joint between lower and upper limit if the requested value is outside that range
+    for (size_t i = 0; i < joints.size(); i++) {
+        joints[i] = std::clamp(joints[i], lower[i], upper[i]);
+    }
+
     sensor_msgs::msg::JointState msg;
     msg.header.stamp = node->get_clock()->now();
 
-    // Fixed joint names
     msg.name = {
         "1", "2", "3",
         "4", "5", "6"
     };
 
-    // Construct vector from inputs
-    msg.position = {j1, j2, j3, j4, j5, j6};
-
+    msg.position.assign(joints.begin(), joints.end());
     jointCommandPub->publish(msg);
 }
+
+
 
 void runStartupInspectionPose()
 {
