@@ -329,6 +329,25 @@ void moveArmToPose(const ArmPose& p)
     armController->moveToCartesianPose(p.x, p.y, p.z, p.rx, p.ry, p.rz);
 }
 
+void publishJointStates(
+    double j1, double j2, double j3,
+    double j4, double j5, double j6)
+{
+    sensor_msgs::msg::JointState msg;
+    msg.header.stamp = node->get_clock()->now();
+
+    // Fixed joint names
+    msg.name = {
+        "1", "2", "3",
+        "4", "5", "6"
+    };
+
+    // Construct vector from inputs
+    msg.position = {j1, j2, j3, j4, j5, j6};
+
+    jointCommandPub->publish(msg);
+}
+
 void runStartupInspectionPose()
 {
     armController->openGripper();
@@ -673,6 +692,8 @@ int main(int argc, char** argv)
         std::bind(&RobotPose::poseCallback, &robotPose, std::placeholders::_1)
     );
 
+    auto jointCommandPub = node->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 5);
+
     Boxes boxes;
     if (!boxes.load_coords()) {
         RCLCPP_ERROR(node->get_logger(), "ERROR: could not load box coordinates");
@@ -704,6 +725,7 @@ int main(int argc, char** argv)
     RoutePlan routePlan = buildRoutePlan(boxes, robotPose.x, robotPose.y, robotPose.phi);
 
     MissionData mission;
+    
     mission.start_x = robotPose.x;
     mission.start_y = robotPose.y;
     mission.start_phi = robotPose.phi;
