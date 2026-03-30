@@ -133,12 +133,18 @@ class YoloDetectorNode(Node):
                 self.result5 = detection_info
         
         # Target classes to prioritize
-        target_classes = {'cup', 'bottle', 'clock', 'motorcycle', 'plant'}
+        target_classes = {'cup', 'bottle', 'clock', 'motorcycle', 'potted plant'}
         
         # Check if any of the top 5 detections are target classes
         best_detection = results_list[0]  # default to highest confidence
         for detection in results_list:
             if detection['class_name'].lower() in target_classes:
+                best_detection = detection
+                save_detected_image = True  # Force save if target class found
+                self.get_logger().info(f"Target class found: {detection['class_name']}")
+                break
+            elif (detection['class_name'].lower() == 'toilet'):
+                detection['class_name'] = 'cup'
                 best_detection = detection
                 save_detected_image = True  # Force save if target class found
                 self.get_logger().info(f"Target class found: {detection['class_name']}")
@@ -151,7 +157,7 @@ class YoloDetectorNode(Node):
         response.message = f"Top 5 detections - Best: {best_detection['class_name']} ({best_detection['confidence']:.4f})"
         
         if save_detected_image:
-            filename = f"/home/turtlebot/ros2_ws/yoloDetectedImages/yolo_detections_{best_detection['class_name']}_.jpg"
+            filename = f"/home/turtlebot/ros2_ws/contest2_SavedFiles/yolo_detections_{best_detection['class_name']}_{camera_source}.jpg"
             annotated_image = results[0].plot()  # Get annotated image with bounding boxes
             cv2.imwrite(filename, annotated_image)
             self.get_logger().info(f'Saved annotated image: {filename}')
