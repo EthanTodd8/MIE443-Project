@@ -823,7 +823,8 @@ int main(int argc, char** argv)
             case RobotState::DropAtBox:
                 RCLCPP_INFO(node->get_logger(), "Dropping object");
                 dropObject();
-                state = RobotState::ReturnHome;
+                mission.currentBoxIndex++;
+                state = RobotState::NavigateToBox;              
                 break;
 
             case RobotState::ReturnHome:
