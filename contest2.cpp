@@ -53,7 +53,7 @@ const int CONTEST_TIME_LIMIT = 300;
 const int WRIST_YOLO_TIMEOUT = 20;
 const int APRILTAG_SEARCH_TIMEOUT = 10;
 const int BOX_YOLO_TIMEOUT = 10;
-const double BOX_APPROACH_BUFFER = 0.25;
+const double BOX_APPROACH_BUFFER = 0.40;
 const double DESIRED_TAG_DISTANCE = 0.5;
 const double joint1_angle = -1.6;
 const std::string BOX_ITEMS_FILE = "/home/turtlebot/ros2_ws/contest2_SavedFiles/boxItems.txt";
@@ -72,10 +72,11 @@ struct ArmPose {
     double x, y, z, rx, ry, rz;
 };
 
-const ArmPose STARTUP_PREVIEW_1{joint1_angle, -0.8909, 0.44, 1.7, 1.5, -0.174533}; 
-const ArmPose STARTUP_PREVIEW_2{joint1_angle, -0.1, 0.5, 1.9, 1.5, 1.74533};
+const ArmPose STARTUP_PREVIEW_1{joint1_angle, -0.8909, 0.44, 1.7, 1.5, -0.174533}; //position above object
+const ArmPose STARTUP_PREVIEW_1_5{joint1_angle, -0.8909, 0.44, 1.7, 1.5, 1.74533}; // same as prevew 1 but with wrist gripper open so it doesn't knock into the cup
+const ArmPose STARTUP_PREVIEW_2{joint1_angle, -0.1, 0.5, 1.9, 1.5, 1.74533}; // looks at object
 const ArmPose DEFAULT_GRAB{joint1_angle, -0.6, 1.0, 1.4, 0.0, 1.74533};
-const ArmPose CUP_GRAB_1{joint1_angle - 0.3, -0.8909, 0.44, 1.7, 1.5, -0.174533};
+const ArmPose CUP_GRAB_1{joint1_angle - 0.3, -0.8909, 0.44, 1.7, 1.5, 1.74533};
 const ArmPose CUP_GRAB_2{joint1_angle - 0.3, -0.6, 0.9, 1.4, 1.5, -0.174533};
 const ArmPose CARRY_POSE{0.0, -1.5, 1.5, -0.8, 0.0, -0.174533};
 const ArmPose DROP_POSE{0.0, 0.5, -0.5, 0.0, 1.5, -0.174533};
@@ -377,7 +378,11 @@ void publishJointStates(
 void runStartupInspectionPose()
 {
 
+    armController->openGripper();
+    rclcpp::sleep_for(std::chrono::milliseconds(500));
+
     publishJointStates(STARTUP_PREVIEW_1);
+    publishJointStates(STARTUP_PREVIEW_1_5);
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     publishJointStates(STARTUP_PREVIEW_2);
@@ -416,12 +421,18 @@ void pickupObject(const std::string& detected)
     publishJointStates(STARTUP_PREVIEW_1);
 
     if (detected == "cup") {
+        armController->openGripper();
+        rclcpp::sleep_for(std::chrono::milliseconds(500));
         publishJointStates(CUP_GRAB_1);
         publishJointStates(CUP_GRAB_2);
     } else {
-        publishJointStates(DEFAULT_GRAB);
+        //publishJointStates(DEFAULT_GRAB);
+        armController->openGripper();
+        rclcpp::sleep_for(std::chrono::milliseconds(500));
+        publishJointStates(CUP_GRAB_1);
+        publishJointStates(CUP_GRAB_2);
     }
-
+    rclcpp::sleep_for(std::chrono::milliseconds(500));
     armController->closeGripper();
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     publishJointStates(STARTUP_PREVIEW_1);
@@ -569,6 +580,13 @@ bool navigateToNextBox(
                 mission.goal_phi);
 
     mission.arrivedAtGoal = navigator.moveToGoal(mission.goal_x, mission.goal_y, mission.goal_phi);
+    if (!mission.arrivedAtGoal) 
+    {
+        double delta = 0.25;  // 25 cm
+        double safety_x = mission.goal_x - delta * std::cos(mission.goal_phi);
+        double safety_y = mission.goal_y - delta * std::sin(mission.goal_phi);
+        double safety_phi = mission.goal_phi;
+    }
     return mission.arrivedAtGoal;
 }
 
@@ -600,7 +618,7 @@ bool handleBoxSearch(
                                 "AprilTag found. Re-aligning to (%.3f, %.3f, %.3f)",
                                 aligned_x, aligned_y, aligned_phi);
 
-                    navigator.moveToGoal(aligned_x, aligned_y, aligned_phi);
+                    //navigator.moveToGoal(aligned_x, aligned_y, aligned_phi);
                     mission.foundAprilTag = true;
                 }
 
@@ -737,8 +755,9 @@ int main(int argc, char** argv)
     ArmController armController_address(node);
     armController = &armController_address;
 
+    rclcpp::sleep_for(std::chrono::seconds(2));
     Navigation navigator(node);
-    navigator.moveToGoal(robotPose.x, robotPose.y, robotPose.phi - M_PI);
+    navigator.moveToGoal(robotPose.x, robotPose.y, robotPose.phi - M_PI); 
 
     AprilTagDetector aprilDetector(node);
     tagDetector = &aprilDetector;
@@ -821,7 +840,7 @@ int main(int argc, char** argv)
 
             case RobotState::SearchAtBox:
                 if (handleBoxSearch(mission, timers, memory, navigator)) {
-                    if (mission.objectFound || mission.currenBoxIndex = mission.totalBoxes - 1) {
+                    if (mission.objectFound || mission.currentBoxIndex == mission.totalBoxes - 1) {
                         state = RobotState::DropAtBox;
                     } else {
                         mission.currentBoxIndex++;
